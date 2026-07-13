@@ -278,8 +278,8 @@ document text
 
 ```json
 {
-  "chunk_size": 800,
-  "chunk_overlap": 150
+  "chunk_size": 400,
+  "chunk_overlap": 80
 }
 ```
 
@@ -698,8 +698,8 @@ class DocumentsListResponse(BaseModel):
 
 
 class IndexDocumentRequest(BaseModel):
-    chunk_size: int = Field(default=800, ge=100, le=3000)
-    chunk_overlap: int = Field(default=150, ge=0, le=1000)
+    chunk_size: int = Field(default=400, ge=100, le=3000)
+    chunk_overlap: int = Field(default=80, ge=0, le=1000)
 
 
 class IndexDocumentResponse(BaseModel):

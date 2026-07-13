@@ -1,0 +1,16 @@
+fastapi
+uvicorn
+pydantic
+pydantic-settings
+python-dotenv
+
+sqlalchemy
+psycopg2-binary
+
+numpy<2
+torch==2.2.2
+transformers==4.49.0
+torchaudio
+accelerate
+sentence-transformers==3.4.1
+qdrant-client
