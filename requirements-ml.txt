@@ -1,0 +1,4 @@
+-r requirements.txt
+sentence-transformers>=3.4,<6.0
+# PyTorch is intentionally not pinned here: install the wheel compatible with
+# your Python/macOS/Linux platform, then install this file.

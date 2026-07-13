@@ -1,390 +1,209 @@
 from __future__ import annotations
 
-import json
+from dataclasses import dataclass
+from datetime import date, datetime
+from pathlib import Path
+from typing import Any
 from uuid import UUID, uuid4
 
 import asyncpg
 
-from app.config import Settings, settings
-from app.schemas import (
-    DocumentIn,
-    DocumentOut,
-    DocumentStatus,
-    SourceType,
-)
+from app.schemas import DocumentOut, DocumentStatus, SourceType
 
-
-# Поля, которые разрешено возвращать наружу через DocumentOut.
-#
-# Здесь намеренно нет:
-# - content_text;
-# - storage_path;
-# - checksum_sha256;
-# - других внутренних полей.
-_DOCUMENT_SELECT_COLUMNS = """
-    id,
-    title,
-    source_type,
-    status,
-    source_url,
-    specialty,
-    lecture_date,
-    metadata,
-    chunk_count,
-    error_message,
-    created_at,
-    updated_at
+_DOCUMENT_COLUMNS = """
+    id, title, source_type, status, source_url, original_filename,
+    storage_path, mime_type, size_bytes, checksum_sha256, content_text,
+    specialty, lecture_date, language, metadata, chunk_count,
+    error_message, created_at, updated_at
 """
 
 
-async def _configure_connection(
-    connection: asyncpg.Connection,
-) -> None:
-    """
-    Настраивает каждое новое соединение PostgreSQL.
+@dataclass(frozen=True, slots=True)
+class DocumentInternal:
+    id: UUID
+    title: str
+    source_type: SourceType
+    status: DocumentStatus
+    source_url: str | None
+    original_filename: str | None
+    storage_path: Path | None
+    mime_type: str | None
+    size_bytes: int | None
+    checksum_sha256: str | None
+    content_text: str | None
+    specialty: str | None
+    lecture_date: date | None
+    language: str
+    metadata: dict[str, Any]
+    chunk_count: int
+    error_message: str | None
+    created_at: datetime
+    updated_at: datetime
 
-    codec — encoder/decoder определённого типа данных.
-
-    Для JSONB:
-    - encoder преобразует Python-словарь в JSON-строку;
-    - decoder преобразует JSON-строку обратно в Python-словарь.
-    """
-
-    await connection.set_type_codec(
-        "jsonb",
-        schema="pg_catalog",
-        encoder=json.dumps,
-        decoder=json.loads,
-        format="text",
-    )
-
-
-async def create_database_pool(
-    config: Settings = settings,
-) -> asyncpg.Pool:
-    """
-    Создаёт пул соединений PostgreSQL.
-
-    pool — пул, то есть набор переиспользуемых соединений.
-    Новое TCP-соединение не создаётся для каждого запроса API.
-    """
-
-    return await asyncpg.create_pool(
-        dsn=config.get_database_url(),
-        min_size=config.database_pool_min_size,
-        max_size=config.database_pool_max_size,
-        command_timeout=(
-            config.database_command_timeout_seconds
-        ),
-        init=_configure_connection,
-    )
+    def to_public(self) -> DocumentOut:
+        return DocumentOut(
+            id=self.id,
+            title=self.title,
+            source_type=self.source_type,
+            status=self.status,
+            source_url=self.source_url,
+            original_filename=self.original_filename,
+            mime_type=self.mime_type,
+            size_bytes=self.size_bytes,
+            specialty=self.specialty,
+            lecture_date=self.lecture_date,
+            language=self.language,
+            metadata=self.metadata,
+            chunk_count=self.chunk_count,
+            error_message=self.error_message,
+            created_at=self.created_at,
+            updated_at=self.updated_at,
+        )
 
 
 class DocumentRepository:
-    """
-    Репозиторий таблицы documents.
-
-    Repository отделяет SQL-запросы от сервисов и endpoint-ов.
-    """
-
     def __init__(self, pool: asyncpg.Pool) -> None:
         self._pool = pool
 
     @staticmethod
-    def _to_document(
-        record: asyncpg.Record,
-    ) -> DocumentOut:
-        """
-        Преобразует строку PostgreSQL в Pydantic-модель.
-        """
-
-        return DocumentOut.model_validate(dict(record))
+    def _to_internal(record: asyncpg.Record) -> DocumentInternal:
+        data = dict(record)
+        return DocumentInternal(
+            id=data["id"],
+            title=data["title"],
+            source_type=SourceType(data["source_type"]),
+            status=DocumentStatus(data["status"]),
+            source_url=data["source_url"],
+            original_filename=data["original_filename"],
+            storage_path=Path(data["storage_path"]) if data["storage_path"] else None,
+            mime_type=data["mime_type"],
+            size_bytes=data["size_bytes"],
+            checksum_sha256=data["checksum_sha256"],
+            content_text=data["content_text"],
+            specialty=data["specialty"],
+            lecture_date=data["lecture_date"],
+            language=data["language"],
+            metadata=data["metadata"] or {},
+            chunk_count=data["chunk_count"],
+            error_message=data["error_message"],
+            created_at=data["created_at"],
+            updated_at=data["updated_at"],
+        )
 
     async def ping(self) -> bool:
-        """
-        Проверяет соединение с PostgreSQL.
-
-        fetchval означает fetch value — получить одно значение.
-        """
-
-        result = await self._pool.fetchval("SELECT 1")
-
-        return result == 1
+        return await self._pool.fetchval("SELECT 1") == 1
 
     async def create(
         self,
-        document: DocumentIn,
         *,
+        title: str,
+        source_type: SourceType,
+        content_text: str,
+        source_url: str | None = None,
         original_filename: str | None = None,
-        storage_path: str | None = None,
+        storage_path: Path | None = None,
         mime_type: str | None = None,
         size_bytes: int | None = None,
         checksum_sha256: str | None = None,
+        specialty: str | None = None,
+        lecture_date: date | None = None,
+        language: str = "ru",
+        metadata: dict[str, Any] | None = None,
     ) -> DocumentOut:
-        """
-        Создаёт документ в PostgreSQL.
-
-        Для text:
-            raw_text записывается в content_text.
-
-        Для URL:
-            source_url записывается в source_url.
-
-        Для PDF:
-            передаются данные загруженного файла.
-        """
-
-        document_id = uuid4()
-
         record = await self._pool.fetchrow(
             f"""
             INSERT INTO documents (
-                id,
-                title,
-                source_type,
-                status,
-                source_url,
-                original_filename,
-                storage_path,
-                mime_type,
-                size_bytes,
-                checksum_sha256,
-                content_text,
-                specialty,
-                lecture_date,
-                metadata
+                id, title, source_type, status, source_url, original_filename,
+                storage_path, mime_type, size_bytes, checksum_sha256, content_text,
+                specialty, lecture_date, language, metadata
+            ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
             )
-            VALUES (
-                $1,
-                $2,
-                $3,
-                $4,
-                $5,
-                $6,
-                $7,
-                $8,
-                $9,
-                $10,
-                $11,
-                $12,
-                $13,
-                $14
-            )
-            RETURNING {_DOCUMENT_SELECT_COLUMNS}
+            RETURNING {_DOCUMENT_COLUMNS}
             """,
-            document_id,
-            document.title,
-            document.source_type.value,
+            uuid4(),
+            title,
+            source_type.value,
             DocumentStatus.UPLOADED.value,
-            (
-                str(document.source_url)
-                if document.source_url is not None
-                else None
-            ),
+            source_url,
             original_filename,
-            storage_path,
+            str(storage_path) if storage_path else None,
             mime_type,
             size_bytes,
-            (
-                checksum_sha256.lower()
-                if checksum_sha256 is not None
-                else None
-            ),
-            document.raw_text,
-            document.specialty,
-            document.lecture_date,
-            document.metadata,
+            checksum_sha256.lower() if checksum_sha256 else None,
+            content_text,
+            specialty,
+            lecture_date,
+            language,
+            metadata or {},
         )
-
         if record is None:
-            raise RuntimeError(
-                "PostgreSQL не вернул созданный документ"
-            )
+            raise RuntimeError("PostgreSQL did not return the created document")
+        return self._to_internal(record).to_public()
 
-        return self._to_document(record)
-
-    async def get_by_id(
-        self,
-        document_id: UUID,
-    ) -> DocumentOut | None:
-        """
-        Возвращает документ по UUID.
-
-        fetchrow означает fetch row — получить одну строку.
-        """
-
+    async def get_internal(self, document_id: UUID) -> DocumentInternal | None:
         record = await self._pool.fetchrow(
-            f"""
-            SELECT {_DOCUMENT_SELECT_COLUMNS}
-            FROM documents
-            WHERE id = $1
-            """,
+            f"SELECT {_DOCUMENT_COLUMNS} FROM documents WHERE id = $1",
             document_id,
         )
+        return self._to_internal(record) if record else None
 
-        if record is None:
-            return None
+    async def get_by_id(self, document_id: UUID) -> DocumentOut | None:
+        document = await self.get_internal(document_id)
+        return document.to_public() if document else None
 
-        return self._to_document(record)
-
-    async def get_content(
-        self,
-        document_id: UUID,
-    ) -> str | None:
-        """
-        Возвращает полный текст документа.
-
-        Этот текст нужен сервису чанкинга, но не возвращается
-        в обычном DocumentOut.
-        """
-
-        return await self._pool.fetchval(
-            """
-            SELECT content_text
-            FROM documents
-            WHERE id = $1
-            """,
-            document_id,
-        )
+    @staticmethod
+    def _filters(
+        *,
+        status: DocumentStatus | None,
+        source_type: SourceType | None,
+        specialty: str | None,
+    ) -> tuple[str, list[object]]:
+        conditions: list[str] = []
+        args: list[object] = []
+        for column, value in (
+            ("status", status.value if status else None),
+            ("source_type", source_type.value if source_type else None),
+            ("specialty", specialty),
+        ):
+            if value is not None:
+                args.append(value)
+                conditions.append(f"{column} = ${len(args)}")
+        return ("WHERE " + " AND ".join(conditions) if conditions else "", args)
 
     async def list_documents(
         self,
         *,
-        limit: int = 100,
-        offset: int = 0,
+        limit: int,
+        offset: int,
         status: DocumentStatus | None = None,
         source_type: SourceType | None = None,
         specialty: str | None = None,
     ) -> list[DocumentOut]:
-        """
-        Возвращает список документов.
-
-        limit — максимальное количество результатов.
-        offset — количество результатов, которые нужно пропустить.
-        """
-
-        if not 1 <= limit <= 500:
-            raise ValueError(
-                "limit должен находиться в диапазоне от 1 до 500"
-            )
-
-        if offset < 0:
-            raise ValueError(
-                "offset не может быть отрицательным"
-            )
-
-        conditions: list[str] = []
-        arguments: list[object] = []
-
-        if status is not None:
-            arguments.append(status.value)
-            conditions.append(
-                f"status = ${len(arguments)}"
-            )
-
-        if source_type is not None:
-            arguments.append(source_type.value)
-            conditions.append(
-                f"source_type = ${len(arguments)}"
-            )
-
-        if specialty is not None:
-            arguments.append(specialty)
-            conditions.append(
-                f"specialty = ${len(arguments)}"
-            )
-
-        where_clause = ""
-
-        if conditions:
-            where_clause = (
-                "WHERE " + " AND ".join(conditions)
-            )
-
-        arguments.append(limit)
-        limit_parameter_number = len(arguments)
-
-        arguments.append(offset)
-        offset_parameter_number = len(arguments)
-
+        where, args = self._filters(status=status, source_type=source_type, specialty=specialty)
+        args.extend([limit, offset])
         records = await self._pool.fetch(
             f"""
-            SELECT {_DOCUMENT_SELECT_COLUMNS}
+            SELECT {_DOCUMENT_COLUMNS}
             FROM documents
-            {where_clause}
+            {where}
             ORDER BY created_at DESC
-            LIMIT ${limit_parameter_number}
-            OFFSET ${offset_parameter_number}
+            LIMIT ${len(args) - 1} OFFSET ${len(args)}
             """,
-            *arguments,
+            *args,
         )
-
-        return [
-            self._to_document(record)
-            for record in records
-        ]
+        return [self._to_internal(record).to_public() for record in records]
 
     async def count_documents(
         self,
         *,
         status: DocumentStatus | None = None,
+        source_type: SourceType | None = None,
+        specialty: str | None = None,
     ) -> int:
-        """
-        Считает количество документов.
-        """
-
-        if status is None:
-            count = await self._pool.fetchval(
-                """
-                SELECT COUNT(*)
-                FROM documents
-                """
-            )
-        else:
-            count = await self._pool.fetchval(
-                """
-                SELECT COUNT(*)
-                FROM documents
-                WHERE status = $1
-                """,
-                status.value,
-            )
-
-        return int(count)
-
-    async def update_content(
-        self,
-        document_id: UUID,
-        content_text: str,
-    ) -> DocumentOut | None:
-        """
-        Записывает извлечённый текст документа.
-
-        Это понадобится после парсинга PDF или загрузки страницы.
-        """
-
-        normalized_content = content_text.strip()
-
-        if not normalized_content:
-            raise ValueError(
-                "content_text не может быть пустым"
-            )
-
-        record = await self._pool.fetchrow(
-            f"""
-            UPDATE documents
-            SET content_text = $2
-            WHERE id = $1
-            RETURNING {_DOCUMENT_SELECT_COLUMNS}
-            """,
-            document_id,
-            normalized_content,
-        )
-
-        if record is None:
-            return None
-
-        return self._to_document(record)
+        where, args = self._filters(status=status, source_type=source_type, specialty=specialty)
+        value = await self._pool.fetchval(f"SELECT COUNT(*) FROM documents {where}", *args)
+        return int(value)
 
     async def update_status(
         self,
@@ -393,121 +212,40 @@ class DocumentRepository:
         *,
         error_message: str | None = None,
     ) -> DocumentOut | None:
-        """
-        Меняет статус документа.
-
-        Для статуса failed сообщение об ошибке обязательно.
-        Для остальных статусов error_message очищается.
-        """
-
-        normalized_error: str | None
-
         if status == DocumentStatus.FAILED:
-            if error_message is None or not error_message.strip():
-                raise ValueError(
-                    "Для статуса failed необходимо указать "
-                    "error_message"
-                )
-
-            normalized_error = error_message.strip()
+            error_message = (error_message or "Unknown indexing error").strip()
         else:
-            normalized_error = None
-
+            error_message = None
         record = await self._pool.fetchrow(
             f"""
             UPDATE documents
-            SET
-                status = $2,
-                error_message = $3
+            SET status = $2, error_message = $3
             WHERE id = $1
-            RETURNING {_DOCUMENT_SELECT_COLUMNS}
+            RETURNING {_DOCUMENT_COLUMNS}
             """,
             document_id,
             status.value,
-            normalized_error,
+            error_message,
         )
+        return self._to_internal(record).to_public() if record else None
 
-        if record is None:
-            return None
-
-        return self._to_document(record)
-
-    async def update_chunk_count(
-        self,
-        document_id: UUID,
-        chunk_count: int,
-    ) -> DocumentOut | None:
-        """
-        Обновляет количество chunks документа.
-        """
-
-        if chunk_count < 0:
-            raise ValueError(
-                "chunk_count не может быть отрицательным"
-            )
-
+    async def finish_indexing(self, document_id: UUID, chunk_count: int) -> DocumentOut | None:
         record = await self._pool.fetchrow(
             f"""
             UPDATE documents
-            SET chunk_count = $2
+            SET status = $2, chunk_count = $3, error_message = NULL
             WHERE id = $1
-            RETURNING {_DOCUMENT_SELECT_COLUMNS}
+            RETURNING {_DOCUMENT_COLUMNS}
             """,
             document_id,
+            DocumentStatus.READY.value,
             chunk_count,
         )
+        return self._to_internal(record).to_public() if record else None
 
-        if record is None:
-            return None
-
-        return self._to_document(record)
-
-    async def merge_metadata(
-        self,
-        document_id: UUID,
-        metadata: dict[str, object],
-    ) -> DocumentOut | None:
-        """
-        Объединяет новые metadata со старыми.
-
-        Оператор JSONB || объединяет JSON-объекты.
-        Значение справа заменяет старое значение при совпадении ключей.
-        """
-
+    async def delete(self, document_id: UUID) -> DocumentInternal | None:
         record = await self._pool.fetchrow(
-            f"""
-            UPDATE documents
-            SET metadata = metadata || $2::jsonb
-            WHERE id = $1
-            RETURNING {_DOCUMENT_SELECT_COLUMNS}
-            """,
-            document_id,
-            metadata,
-        )
-
-        if record is None:
-            return None
-
-        return self._to_document(record)
-
-    async def delete(
-        self,
-        document_id: UUID,
-    ) -> bool:
-        """
-        Удаляет документ.
-
-        True — документ существовал и был удалён.
-        False — документ не найден.
-        """
-
-        deleted_id = await self._pool.fetchval(
-            """
-            DELETE FROM documents
-            WHERE id = $1
-            RETURNING id
-            """,
+            f"DELETE FROM documents WHERE id = $1 RETURNING {_DOCUMENT_COLUMNS}",
             document_id,
         )
-
-        return deleted_id is not None
+        return self._to_internal(record) if record else None
