@@ -91,7 +91,7 @@ class Settings(BaseSettings):
         return "" if value == "/" else value
 
     @model_validator(mode="after")
-    def validate_related_values(self) -> Settings:
+    def validate_related_values(self) -> "Settings":
         if self.database_pool_min_size > self.database_pool_max_size:
             raise ValueError("database_pool_min_size cannot exceed database_pool_max_size")
         if self.chunk_overlap_tokens >= self.chunk_size_tokens:
