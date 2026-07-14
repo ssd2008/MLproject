@@ -4,12 +4,11 @@ services:
     environment:
       POSTGRES_DB: med_assistant
       POSTGRES_USER: med_user
-      POSTGRES_PASSWORD: med_password
+      POSTGRES_PASSWORD: med_pass
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./sql:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U med_user -d med_assistant"]
       interval: 5s
@@ -29,10 +28,20 @@ services:
       timeout: 5s
       retries: 20
 
+  migrate:
+    build: .
+    command: ["python", "-m", "scripts.migrate"]
+    environment:
+      DATABASE_URL: postgresql://med_user:med_pass@postgres:5432/med_assistant
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   api:
     build: .
     environment:
-      DATABASE_URL: postgresql://med_user:med_password@postgres:5432/med_assistant
+      DATABASE_URL: postgresql://med_user:med_pass@postgres:5432/med_assistant
       QDRANT_URL: http://qdrant:6333
       EMBEDDING_BACKEND: hash
       EMBEDDING_DIMENSION: 1024
@@ -44,8 +53,8 @@ services:
     volumes:
       - uploads_data:/app/data/uploads
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       qdrant:
         condition: service_healthy
 
