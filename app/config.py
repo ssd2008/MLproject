@@ -68,7 +68,7 @@ class Settings(BaseSettings):
 
     chunk_size_tokens: int = Field(default=400, ge=50, le=5000)
     chunk_overlap_tokens: int = Field(default=80, ge=0, le=2000)
-    video_chunk_duration_seconds: float = Field(default=10.0, ge=3.0, le=120.0)
+    video_chunk_duration_seconds: float = Field(default=20.0, ge=3.0, le=120.0)
     video_chunk_overlap_seconds: float = Field(default=2.0, ge=0.0, le=30.0)
     retrieval_top_k: int = Field(default=10, ge=1, le=100)
     retrieval_candidate_k: int = Field(default=30, ge=1, le=300)

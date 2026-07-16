@@ -2,8 +2,8 @@ from app.services.chunking_service import ChunkingService
 from app.services.extraction_service import ExtractedDocument, TimedTextSpan
 
 
-def test_video_chunks_have_short_timestamp_ranges() -> None:
-    words = [f"слово{i}" for i in range(30)]
+def test_video_chunks_respect_timestamp_ranges() -> None:
+    words = [f"слово{i}" for i in range(60)]
     text = " ".join(words)
     spans = []
     cursor = 0
@@ -24,7 +24,7 @@ def test_video_chunks_have_short_timestamp_ranges() -> None:
         ExtractedDocument(text=text, time_spans=tuple(spans)),
         chunk_size=400,
         chunk_overlap=80,
-        max_time_seconds=10,
+        max_time_seconds=20,
         time_overlap_seconds=2,
     )
 
@@ -32,7 +32,7 @@ def test_video_chunks_have_short_timestamp_ranges() -> None:
     assert all(chunk.time_start_seconds is not None for chunk in chunks)
     assert all(chunk.time_end_seconds is not None for chunk in chunks)
     assert all(
-        chunk.time_end_seconds - chunk.time_start_seconds <= 10
+        chunk.time_end_seconds - chunk.time_start_seconds <= 20
         for chunk in chunks
         if chunk.time_start_seconds is not None and chunk.time_end_seconds is not None
     )
