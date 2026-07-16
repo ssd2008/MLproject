@@ -7,6 +7,6 @@
 
 <div align="left">
 
-Быстрый запуск -> [здесь](md/start.md) \
-Полное описание -> [здесь](md/description.md) \
-API-спека -> [здесь](md/api_spec.md)
+## Быстрый запуск -> [здесь](md/start.md) \
+## Полное описание -> [здесь](md/description.md) \
+## API-спека -> [здесь](md/api_spec.md)
