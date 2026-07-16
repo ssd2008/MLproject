@@ -5,6 +5,6 @@
 
 <img src="md/logo.png" alt="Medical Learning Assistant" width="850">
 
-Быстрый запуск -> [здесь](md/start.md)
-Полное описание -> [здесь](md/description.md)
+Быстрый запуск -> [здесь](md/start.md) \
+Полное описание -> [здесь](md/description.md) \
 API-спека -> [здесь](md/api_spec.md)
