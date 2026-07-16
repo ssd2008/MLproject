@@ -1,6 +1,10 @@
 # Привет !!!
 ## это ИИ-ассистент, помогающий изучать материал, находя в источнике интересующую Вас тему.
-[[md/logo.png]]
-как запустить -> [[md/start.md|здесь]]
-полное описание -> [[md/discription.md|здесь]]
-API-спека -> [[md/api_spec.md|здесь]]
+
+<div align="center">
+
+<img src="md/logo.png" alt="Medical Learning Assistant" width="850">
+
+Быстрый запуск -> [здесь](md/start.md)
+Полное описание -> [здесь](md/description.md)
+API-спека -> [здесь](md/api_spec.md)
