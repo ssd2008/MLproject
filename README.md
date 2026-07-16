@@ -1,113 +1,151 @@
-# Medical Learning Assistant — backend
+# Medical Learning Assistant
 
-Backend для ИИ-ассистента, который загружает медицинские учебные материалы, индексирует их в Qdrant, выполняет semantic search, reranking и возвращает ответы с цитатами.
+ИИ-ассистент для врачей и ординаторов, который помогает загружать, искать и применять знания из учебных медицинских материалов.
 
-Проект предназначен для обучения. Он не должен использоваться для автономной постановки диагноза или назначения лечения.
+Проект принимает текст, веб-страницы, PDF и видео лекций, индексирует материалы в Qdrant и возвращает релевантные фрагменты или ответы с привязкой к исходным страницам и тайм-кодам.
+
+> Статус: рабочий MVP для обучения и демонстрации. Сервис не предназначен для автономной постановки диагноза или назначения лечения.
 
 ## Что реализовано
 
+### Источники
+
+- текстовые материалы;
+- URL с защитой от SSRF: private, loopback и link-local адреса запрещены;
+- PDF с привязкой фрагментов к страницам;
+- видео MP4, MOV, MKV, WEBM и M4V до 500 МБ;
+- локальная транскрибация видео через `faster-whisper`;
+- word-level timestamps — временные метки отдельных слов.
+
+### Поиск и ответы
+
+- dense semantic search в Qdrant;
+- embeddings: `intfloat/multilingual-e5-large`;
+- reranking: `BAAI/bge-reranker-v2-m3`;
+- видео разбивается на окна максимум по 20 секунд с overlap 2 секунды;
+- retrieval и reranker оценивают компактный центральный чанк;
+- после ранжирования к видео-хиту добавляются предыдущий и следующий чанки;
+- соседние пересекающиеся хиты дедуплицируются;
+- результаты видео содержат диапазоны времени вида `3:12–4:08`;
+- ответы возвращают citations, confidence, limitations и safety notes;
+- доступны extractive-ответы без внешней LLM и генерация через OpenAI Responses API с extractive fallback.
+
+### Приложение и инфраструктура
+
 - FastAPI API `/api/v1`;
-- загрузка текста, URL и PDF;
-- защита URL-загрузки от SSRF: private/loopback/link-local адреса запрещены;
-- извлечение текста из PDF с привязкой chunks к страницам;
-- deterministic chunking с overlap и точными `char_start` / `char_end`;
+- React frontend;
 - PostgreSQL для документов, indexing jobs и feedback;
-- Qdrant для embeddings и payload;
-- идемпотентная переиндексация документа;
-- два embedding backend-а:
-  - `hash` — лёгкий backend без PyTorch для разработки и тестов;
-  - `sentence-transformers` — `multilingual-e5-large`;
-- два reranker backend-а:
-  - `lexical` — лёгкий fallback;
-  - `cross-encoder` — BGE reranker;
-- два answer backend-а:
-  - `extractive` — ответ из найденных фрагментов без LLM;
-  - `openai` — генерация через Responses API с extractive fallback;
-- citations, confidence, limitations и safety notes;
-- Docker Compose, миграции, smoke test, pytest, Ruff и GitHub Actions.
+- Qdrant для embeddings и metadata payload;
+- Docker Compose;
+- версионированные SQL-миграции;
+- healthcheck, smoke test, pytest, Ruff и GitHub Actions;
+- постоянные volumes для PostgreSQL, Qdrant, файлов и Hugging Face cache.
 
 ## Архитектура
 
 ```text
-HTTP API
-  -> services
-      -> PostgreSQL repositories
-      -> embedding/reranker/answer providers
-      -> Qdrant repository
+Browser
+  -> Nginx / React frontend
+      -> FastAPI routers
+          -> services
+              -> PostgreSQL repositories
+              -> extraction / transcription
+              -> embedding / reranker / answer providers
+              -> Qdrant repository
 ```
 
-`repository` отвечает только за доступ к данным. `service` реализует бизнес-логику. Router преобразует HTTP-запрос в вызов сервиса.
+`repository` отвечает за доступ к данным. `service` содержит бизнес-логику. Router преобразует HTTP-запрос в вызов сервиса.
+
+Видео-поиск работает в два этапа:
+
+```text
+20-second chunks
+  -> dense retrieval
+  -> cross-encoder reranking
+  -> select central hits
+  -> fetch chunk_index - 1, chunk_index, chunk_index + 1
+  -> merge context without duplicated overlap
+```
+
+Так поиск остаётся точным, а ответ получает до примерно минуты связного объяснения.
 
 ## Быстрый запуск в Docker
+
+Требуются Docker и Docker Compose.
 
 ```bash
 cp .env.example .env
 docker compose up --build
 ```
 
-Swagger UI:
+Первый запуск скачивает embedding-модель, reranker и Whisper-модель в постоянный Docker volume. На CPU это может занять заметное время.
 
-```text
-http://127.0.0.1:8000/docs
-```
+После запуска:
 
-Healthcheck:
+- приложение: `http://127.0.0.1:3000`;
+- Swagger UI: `http://127.0.0.1:8000/docs`;
+- healthcheck: `http://127.0.0.1:8000/api/v1/health`.
 
-```bash
-curl http://127.0.0.1:8000/api/v1/health
-```
-
-Smoke test:
+Остановка:
 
 ```bash
-python -m scripts.smoke_test
+docker compose down
 ```
 
-## Локальный запуск
-
-Требуется Python 3.11+.
+Удаление контейнеров вместе с локальными данными:
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements-dev.txt
-cp .env.example .env
-docker compose up -d postgres qdrant
-python -m scripts.migrate
-uvicorn app.main:app --reload
+docker compose down -v
 ```
 
-Запускай скрипты через `python -m scripts.<name>` из корня проекта. Тогда корень проекта находится в `sys.path`, и импорт `app` работает без ручного `PYTHONPATH`.
+## Демонстрационный сценарий
 
-## Настоящие ML-модели
+1. Открой `http://127.0.0.1:3000`.
+2. Загрузи PDF, текст, URL или видео лекции.
+3. Запусти автоматическую индексацию.
+4. Дождись статуса `Готов`.
+5. Выполни поиск по содержанию материала.
+6. Для видео проверь тайм-коды найденных фрагментов.
+7. Задай вопрос ассистенту и проверь цитаты.
 
-Базовая конфигурация использует `hash` и `lexical`, чтобы backend запускался без тяжёлых зависимостей.
-
-Сначала установи подходящий для твоей ОС и версии Python PyTorch, затем:
-
-```bash
-python -m pip install -r requirements-ml.txt
-```
-
-В `.env`:
+## Основная конфигурация
 
 ```dotenv
 EMBEDDING_BACKEND=sentence-transformers
 EMBEDDING_MODEL_NAME=intfloat/multilingual-e5-large
 EMBEDDING_DIMENSION=1024
+
 RERANKER_BACKEND=cross-encoder
-RERANKER_MODEL_NAME=BAAI/bge-reranker-large
+RERANKER_MODEL_NAME=BAAI/bge-reranker-v2-m3
+
+ASR_BACKEND=faster-whisper
+ASR_MODEL_NAME=small
+ASR_DEVICE=cpu
+ASR_COMPUTE_TYPE=int8
+
+VIDEO_CHUNK_DURATION_SECONDS=20
+VIDEO_CHUNK_OVERLAP_SECONDS=2
+VIDEO_CONTEXT_NEIGHBOR_CHUNKS=1
+
+ANSWER_BACKEND=extractive
 ```
 
-После смены `EMBEDDING_DIMENSION` или embedding-модели используй новое имя коллекции, например:
+`dimension` означает размерность — число компонентов embedding-вектора. После смены embedding-модели или размерности используй новое имя Qdrant collection:
 
 ```dotenv
 QDRANT_COLLECTION_NAME=document_chunks_v2
 ```
 
-Векторная размерность коллекции фиксируется при создании. `dimension` означает размерность — число компонентов embedding-вектора.
+Облегчённый режим без тяжёлых ML-зависимостей:
 
-## OpenAI answer backend
+```dotenv
+EMBEDDING_BACKEND=hash
+RERANKER_BACKEND=lexical
+ASR_BACKEND=disabled
+QDRANT_COLLECTION_NAME=document_chunks_v1
+```
+
+Опциональный генеративный backend:
 
 ```dotenv
 ANSWER_BACKEND=openai
@@ -115,27 +153,26 @@ OPENAI_API_KEY=...
 OPENAI_MODEL=gpt-4.1-mini
 ```
 
-При ошибке внешней модели сервис не теряет ответ полностью: он возвращает extractive fallback и записывает ограничение в `limitations`.
+При ошибке внешней модели сервис возвращает extractive fallback и указывает ограничение в `limitations`.
 
 ## API
 
-Основные endpoints:
-
 | Method | Endpoint | Назначение |
 |---|---|---|
-| `GET` | `/api/v1/health` | Проверка PostgreSQL, Qdrant и активных backend-ов |
-| `POST` | `/api/v1/documents` | Создать text/URL документ |
+| `GET` | `/api/v1/health` | Проверить PostgreSQL, Qdrant и активные backend-ы |
+| `POST` | `/api/v1/documents` | Создать text или URL документ |
 | `POST` | `/api/v1/documents/upload` | Загрузить PDF |
-| `GET` | `/api/v1/documents` | Список документов |
+| `POST` | `/api/v1/documents/upload/video` | Загрузить видео |
+| `GET` | `/api/v1/documents` | Получить список документов |
 | `GET` | `/api/v1/documents/{id}` | Получить документ |
-| `DELETE` | `/api/v1/documents/{id}` | Удалить документ и vectors |
-| `POST` | `/api/v1/documents/{id}/index` | Создать background indexing job |
-| `GET` | `/api/v1/jobs/{id}` | Статус индексации |
-| `POST` | `/api/v1/search` | Поиск chunks |
-| `POST` | `/api/v1/answer` | Ответ с citations |
+| `DELETE` | `/api/v1/documents/{id}` | Удалить документ, файл и vectors |
+| `POST` | `/api/v1/documents/{id}/index` | Создать indexing job |
+| `GET` | `/api/v1/jobs/{id}` | Получить статус индексации |
+| `POST` | `/api/v1/search` | Найти релевантные фрагменты |
+| `POST` | `/api/v1/answer` | Получить ответ с citations |
 | `POST` | `/api/v1/feedback` | Сохранить оценку ответа |
 
-### Создание текстового документа
+### Пример текстового документа
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/documents \
@@ -159,21 +196,77 @@ curl -X POST http://127.0.0.1:8000/api/v1/documents/<UUID>/index \
 
 `job` означает фоновую задачу. Endpoint сразу возвращает `job_id`; прогресс читается через `/jobs/{job_id}`.
 
-## Тесты и линтер
+## Локальная разработка
+
+Требуется Python 3.11+.
 
 ```bash
-pytest
-ruff check .
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements-dev.txt
+cp .env.example .env
+docker compose up -d postgres qdrant
+python -m scripts.migrate
+uvicorn app.main:app --reload
 ```
 
-Unit-тесты не требуют PostgreSQL, Qdrant, PyTorch или внешнего API.
+Для настоящих ML-моделей установи зависимости:
 
-## Ограничения текущей версии
+```bash
+python -m pip install -r requirements-ml.txt
+```
 
-- PDF со сканами без текстового слоя требует отдельного OCR pipeline;
-- background jobs выполняются процессом FastAPI, а не отдельной очередью Celery/RQ;
-- `hash` embeddings и `lexical` reranker нужны для запуска, но не заменяют ML-модели по качеству;
-- локальное файловое хранилище PDF нужно заменить на S3-совместимое для нескольких backend-инстансов;
-- нет authentication/authorization и пользовательской изоляции документов;
+Скрипты запускаются из корня через `python -m scripts.<name>`, чтобы пакет `app` находился в `sys.path`.
+
+## Проверки
+
+```bash
+ruff check .
+python -m pytest
+```
+
+Frontend:
+
+```bash
+cd frontend
+npm install
+npm run build
+```
+
+Smoke test запущенного API:
+
+```bash
+python -m scripts.smoke_test
+```
+
+Unit-тесты используют лёгкие backend-ы и не требуют PostgreSQL, Qdrant, PyTorch или внешнего API.
+
+## Ограничения MVP
+
+- PDF со сканами без текстового слоя не поддерживаются без OCR;
+- загрузка PDF и видео пока читает файл целиком в память;
+- indexing jobs выполняются внутри процесса FastAPI и не переживают его перезапуск;
+- локальное файловое хранилище не подходит для нескольких backend-инстансов;
+- нет authentication, authorization и пользовательской изоляции документов;
+- нет rate limiting и квот на ресурсоёмкую транскрибацию;
+- нет speaker diarization — разделения речи по спикерам;
 - нет hybrid dense+sparse retrieval;
-- нет evaluation dataset и автоматической оценки retrieval/reranking quality.
+- нет evaluation dataset и автоматических retrieval/reranking метрик;
+- CI проверяет unit-тесты и frontend build, но пока не поднимает полный Docker Compose stack.
+
+## Перед использованием реальными пользователями
+
+Минимально необходимы:
+
+1. потоковая загрузка файлов или object storage;
+2. отдельная очередь и worker для транскрибации и индексации;
+3. authentication и разграничение доступа к материалам;
+4. rate limiting, лимиты диска/CPU и наблюдаемость;
+5. интеграционные и end-to-end тесты с PostgreSQL и Qdrant;
+6. датасет оценки retrieval, reranking и качества ответов;
+7. политика обработки медицинских и персональных данных;
+8. резервное копирование PostgreSQL, Qdrant и файлового хранилища.
+
+## Safety
+
+Ассистент предназначен для работы с учебными материалами. Ответы нужно проверять по первичным источникам. Проект не заменяет клиническое решение врача.
