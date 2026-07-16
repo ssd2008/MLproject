@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     normalize_embeddings: bool = True
 
     reranker_backend: Literal["lexical", "cross-encoder"] = "lexical"
-    reranker_model_name: str = "BAAI/bge-reranker-large"
+    reranker_model_name: str = "BAAI/bge-reranker-v2-m3"
     reranker_batch_size: int = Field(default=16, ge=1, le=256)
     reranker_device: Literal["auto", "cpu", "mps", "cuda"] = "auto"
 
@@ -65,7 +65,7 @@ class Settings(BaseSettings):
     retrieval_candidate_k: int = Field(default=30, ge=1, le=300)
     minimum_retrieval_score: float | None = Field(default=None, ge=-1.0, le=1.0)
 
-    max_document_size_mb: int = Field(default=50, ge=1, le=500)
+    max_document_size_mb: int = Field(default=10, ge=1, le=500)
     upload_dir: Path = BASE_DIR / "data" / "uploads"
     url_fetch_timeout_seconds: float = Field(default=20.0, gt=0, le=120)
     url_fetch_max_redirects: int = Field(default=5, ge=0, le=20)
