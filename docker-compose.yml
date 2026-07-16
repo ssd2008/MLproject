@@ -1,9 +1,5 @@
 x-backend-image: &backend-image
   image: mlproject-api:local
-  build:
-    context: .
-    args:
-      REQUIREMENTS_FILE: requirements-ml.txt
 
 x-ml-environment: &ml-environment
   EMBEDDING_BACKEND: sentence-transformers
@@ -70,6 +66,10 @@ services:
 
   api:
     <<: *backend-image
+    build:
+      context: .
+      args:
+        REQUIREMENTS_FILE: requirements-ml.txt
     environment:
       <<: *ml-environment
       DATABASE_URL: postgresql://med_user:med_pass@postgres:5432/med_assistant
