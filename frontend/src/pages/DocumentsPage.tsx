@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useMemo, useState } from "react";
 import { api, ApiError } from "../api/client";
 import type { DocumentItem, DocumentStatus, JobItem, SourceType } from "../api/types";
 import { Button, EmptyState, ErrorBanner, Modal, Spinner, Tag } from "../components/ui";
@@ -13,6 +13,9 @@ interface DocumentsPageProps {
   refreshDocuments: () => Promise<void>;
   notify: (message: string, tone?: "success" | "error") => void;
 }
+
+const MAX_PDF_SIZE_MB = 10;
+const MAX_PDF_SIZE_BYTES = MAX_PDF_SIZE_MB * 1024 * 1024;
 
 const STATUS_TONES: Record<DocumentStatus, string> = {
   uploaded: "warning",
@@ -78,6 +81,17 @@ export function DocumentsPage({
     setAutoIndex(true);
   }
 
+  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const selectedFile = event.target.files?.[0] || null;
+    if (selectedFile && selectedFile.size > MAX_PDF_SIZE_BYTES) {
+      event.target.value = "";
+      setFile(null);
+      notify(`Размер PDF не должен превышать ${MAX_PDF_SIZE_MB} МБ`, "error");
+      return;
+    }
+    setFile(selectedFile);
+  }
+
   async function pollJob(documentId: string, jobId: string, documentTitle: string) {
     for (let attempt = 0; attempt < 180; attempt += 1) {
       const job = await api.getJob(jobId);
@@ -141,6 +155,9 @@ export function DocumentsPage({
       let document: DocumentItem;
       if (uploadMode === "pdf") {
         if (!file) throw new Error("Выберите PDF-файл");
+        if (file.size > MAX_PDF_SIZE_BYTES) {
+          throw new Error(`Размер PDF не должен превышать ${MAX_PDF_SIZE_MB} МБ`);
+        }
         const form = new FormData();
         form.append("file", file);
         form.append("title", title.trim());
@@ -294,8 +311,8 @@ export function DocumentsPage({
 
             {uploadMode === "pdf" && (
               <label className={`file-drop${file ? " file-drop--selected" : ""}`}>
-                <input type="file" accept="application/pdf,.pdf" onChange={(event) => setFile(event.target.files?.[0] || null)} />
-                <span className="file-drop__icon">⇧</span><strong>{file ? file.name : "Выберите PDF-файл"}</strong><small>{file ? formatBytes(file.size) : "До 50 МБ, требуется текстовый слой"}</small>
+                <input type="file" accept="application/pdf,.pdf" onChange={handleFileChange} />
+                <span className="file-drop__icon">⇧</span><strong>{file ? file.name : "Выберите PDF-файл"}</strong><small>{file ? formatBytes(file.size) : `До ${MAX_PDF_SIZE_MB} МБ, требуется текстовый слой`}</small>
               </label>
             )}
 
