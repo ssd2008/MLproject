@@ -91,6 +91,7 @@ async def create_container(settings: Settings) -> AppContainer:
             vectors=vectors,
             embeddings=embeddings,
             reranker=reranker,
+            video_context_neighbor_chunks=settings.video_context_neighbor_chunks,
         )
         fallback = ExtractiveAnswerGenerator()
         answer_service = AnswerService(
