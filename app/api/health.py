@@ -31,6 +31,7 @@ async def healthcheck(
             return ComponentHealth(status="error", detail=str(exc))
 
     postgres, qdrant = await asyncio.gather(check_postgres(), check_qdrant())
+    asr_status = "disabled" if container.settings.asr_backend == "disabled" else "ok"
     components = {
         "postgres": postgres,
         "qdrant": qdrant,
@@ -41,6 +42,14 @@ async def healthcheck(
         "reranker": ComponentHealth(
             status="ok",
             detail=container.reranker.backend_name,
+        ),
+        "asr": ComponentHealth(
+            status=asr_status,
+            detail=(
+                None
+                if asr_status == "disabled"
+                else f"{container.transcription.backend_name}:{container.settings.asr_model_name}"
+            ),
         ),
         "answer": ComponentHealth(
             status="ok",

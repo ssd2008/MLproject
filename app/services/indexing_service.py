@@ -9,10 +9,11 @@ from app.qdrant_schema import ChunkPayload, build_chunk_point_id, calculate_cont
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.job_repository import JobRepository
 from app.repositories.vector_repository import VectorChunk, VectorRepository
-from app.schemas import DocumentStatus
+from app.schemas import DocumentStatus, SourceType
 from app.services.chunking_service import ChunkingService
 from app.services.embedding_service import EmbeddingService
-from app.services.extraction_service import ExtractedDocument, PageSpan
+from app.services.extraction_service import ExtractedDocument, PageSpan, TimedTextSpan
+from app.services.transcription_service import TranscriptionService
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ class IndexingService:
         vectors: VectorRepository,
         chunking: ChunkingService,
         embeddings: EmbeddingService,
+        transcription: TranscriptionService,
     ) -> None:
         self._settings = settings
         self._documents = documents
@@ -34,6 +36,7 @@ class IndexingService:
         self._vectors = vectors
         self._chunking = chunking
         self._embeddings = embeddings
+        self._transcription = transcription
 
     async def create_job(
         self,
@@ -61,26 +64,79 @@ class IndexingService:
             document = await self._documents.get_internal(document_id)
             if document is None:
                 raise DocumentNotFoundError("Document not found")
+
+            if document.source_type == SourceType.VIDEO and not document.content_text:
+                if document.storage_path is None:
+                    raise IndexingError("Video file is missing from storage")
+                await self._jobs.update_progress(job_id, 5)
+                transcription = await self._transcription.transcribe(
+                    document.storage_path,
+                    language=document.language,
+                )
+                metadata = {
+                    **document.metadata,
+                    "transcription_status": "completed",
+                    "asr_model": self._settings.asr_model_name,
+                    "detected_language": transcription.detected_language,
+                    "language_probability": transcription.language_probability,
+                    "duration_seconds": transcription.duration_seconds,
+                    "time_spans": [
+                        {
+                            "start_seconds": span.start_seconds,
+                            "end_seconds": span.end_seconds,
+                            "char_start": span.char_start,
+                            "char_end": span.char_end,
+                        }
+                        for span in transcription.time_spans
+                    ],
+                }
+                await self._documents.update_extracted_content(
+                    document.id,
+                    content_text=transcription.text,
+                    metadata=metadata,
+                )
+                document = await self._documents.get_internal(document_id)
+                if document is None:
+                    raise DocumentNotFoundError("Document disappeared after transcription")
+                await self._jobs.update_progress(job_id, 20)
+
             if not document.content_text:
                 raise IndexingError("Document has no extracted text")
 
-            spans = tuple(
+            page_spans = tuple(
                 PageSpan(**item)
                 for item in document.metadata.get("page_spans", [])
                 if isinstance(item, dict)
                 and {"page_number", "char_start", "char_end"} <= set(item)
             )
+            time_spans = tuple(
+                TimedTextSpan(**item)
+                for item in document.metadata.get("time_spans", [])
+                if isinstance(item, dict)
+                and {"start_seconds", "end_seconds", "char_start", "char_end"} <= set(item)
+            )
+            is_video = document.source_type == SourceType.VIDEO
             chunks = self._chunking.split(
-                ExtractedDocument(text=document.content_text, page_spans=spans),
+                ExtractedDocument(
+                    text=document.content_text,
+                    page_spans=page_spans,
+                    time_spans=time_spans,
+                ),
                 chunk_size=job.chunk_size,
                 chunk_overlap=job.chunk_overlap,
+                max_time_seconds=(
+                    self._settings.video_chunk_duration_seconds if is_video else None
+                ),
+                time_overlap_seconds=(
+                    self._settings.video_chunk_overlap_seconds if is_video else 0.0
+                ),
             )
             if not chunks:
                 raise IndexingError("Chunking produced no chunks")
-            await self._jobs.update_progress(job_id, 25)
+            await self._jobs.update_progress(job_id, 30)
 
             vectors = await self._embeddings.embed_documents([chunk.text for chunk in chunks])
-            await self._jobs.update_progress(job_id, 70)
+            await self._jobs.update_progress(job_id, 75)
             vector_chunks: list[VectorChunk] = []
             for chunk, vector in zip(chunks, vectors, strict=True):
                 content_hash = calculate_content_hash(chunk.text)
@@ -93,6 +149,8 @@ class IndexingService:
                     char_end=chunk.char_end,
                     page_start=chunk.page_start,
                     page_end=chunk.page_end,
+                    time_start_seconds=chunk.time_start_seconds,
+                    time_end_seconds=chunk.time_end_seconds,
                     section_title=chunk.section_title,
                     document_title=document.title,
                     source_type=document.source_type,
@@ -125,6 +183,10 @@ class IndexingService:
                     "document_id": str(document.id),
                     "chunks_count": count,
                     "embedding_backend": self._embeddings.backend_name,
+                    "asr_backend": (
+                        self._transcription.backend_name if is_video else None
+                    ),
+                    "duration_seconds": document.metadata.get("duration_seconds"),
                 },
             )
         except Exception as exc:

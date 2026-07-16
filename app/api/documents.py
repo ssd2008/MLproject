@@ -61,6 +61,29 @@ async def upload_document(
     )
 
 
+@router.post("/upload/video", response_model=DocumentOut, status_code=status.HTTP_201_CREATED)
+async def upload_video(
+    file: UploadFile = File(...),
+    title: str = Form(..., min_length=1, max_length=300),
+    specialty: str | None = Form(default=None, max_length=100),
+    language: str = Form(default="ru", min_length=2, max_length=16),
+    lecture_date: date | None = Form(default=None),
+    metadata: str | None = Form(default=None),
+    container: AppContainer = Depends(get_container),
+) -> DocumentOut:
+    data = await file.read(container.settings.max_video_size_bytes + 1)
+    return await container.document_service.upload_video(
+        filename=file.filename or "upload.mp4",
+        content_type=file.content_type,
+        data=data,
+        title=title,
+        specialty=specialty,
+        language=language,
+        lecture_date=lecture_date,
+        metadata_json=metadata,
+    )
+
+
 @router.get("", response_model=DocumentsListResponse)
 async def list_documents(
     limit: int = Query(default=50, ge=1, le=500),

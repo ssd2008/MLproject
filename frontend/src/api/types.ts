@@ -1,4 +1,4 @@
-export type SourceType = "pdf" | "url" | "text";
+export type SourceType = "pdf" | "url" | "text" | "video";
 export type DocumentStatus = "uploaded" | "processing" | "ready" | "failed";
 export type JobStatus = "pending" | "running" | "completed" | "failed";
 export type ComponentStatus = "ok" | "error" | "disabled";
@@ -93,6 +93,8 @@ export interface SearchResult {
   language: string;
   page_start: number | null;
   page_end: number | null;
+  time_start_seconds: number | null;
+  time_end_seconds: number | null;
   section_title: string | null;
   char_start: number;
   char_end: number;
@@ -124,6 +126,8 @@ export interface Citation {
   quote: string;
   page_start: number | null;
   page_end: number | null;
+  time_start_seconds: number | null;
+  time_end_seconds: number | null;
   section_title: string | null;
   char_start: number;
   char_end: number;

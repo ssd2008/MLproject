@@ -19,6 +19,15 @@ from app.schemas import (
 )
 from app.services.extraction_service import ExtractionService
 
+_VIDEO_TYPES = {
+    ".mp4": "video/mp4",
+    ".mov": "video/quicktime",
+    ".mkv": "video/x-matroska",
+    ".webm": "video/webm",
+    ".m4v": "video/x-m4v",
+}
+_ALLOWED_VIDEO_MIME_TYPES = set(_VIDEO_TYPES.values()) | {"application/octet-stream"}
+
 
 class DocumentService:
     def __init__(
@@ -42,7 +51,9 @@ class DocumentService:
             source_url = str(request.source_url)
             extracted = await self._extraction.extract_url(source_url)
         else:
-            raise InvalidDocumentError("PDF documents must use the upload endpoint")
+            raise InvalidDocumentError(
+                "PDF and video documents must use their upload endpoints"
+            )
 
         return await self._repository.create(
             title=request.title,
@@ -54,6 +65,16 @@ class DocumentService:
             language=request.language,
             metadata=request.metadata,
         )
+
+    @staticmethod
+    def _parse_metadata(metadata_json: str | None) -> dict:
+        try:
+            metadata = json.loads(metadata_json) if metadata_json else {}
+        except json.JSONDecodeError as exc:
+            raise InvalidDocumentError("metadata must be a valid JSON object") from exc
+        if not isinstance(metadata, dict):
+            raise InvalidDocumentError("metadata must be a JSON object")
+        return metadata
 
     async def upload_pdf(
         self,
@@ -77,12 +98,7 @@ class DocumentService:
             raise InvalidDocumentError(
                 f"PDF exceeds the {self._settings.max_document_size_mb} MB limit"
             )
-        try:
-            metadata = json.loads(metadata_json) if metadata_json else {}
-        except json.JSONDecodeError as exc:
-            raise InvalidDocumentError("metadata must be a valid JSON object") from exc
-        if not isinstance(metadata, dict):
-            raise InvalidDocumentError("metadata must be a JSON object")
+        metadata = self._parse_metadata(metadata_json)
 
         extracted = await self._extraction.extract_pdf(data)
         upload_dir = self._settings.upload_dir
@@ -113,6 +129,61 @@ class DocumentService:
                         }
                         for span in extracted.page_spans
                     ],
+                },
+            )
+        except Exception:
+            storage_path.unlink(missing_ok=True)
+            raise
+
+    async def upload_video(
+        self,
+        *,
+        filename: str,
+        content_type: str | None,
+        data: bytes,
+        title: str,
+        specialty: str | None,
+        language: str,
+        lecture_date,
+        metadata_json: str | None,
+    ) -> DocumentOut:
+        suffix = Path(filename).suffix.lower()
+        if suffix not in _VIDEO_TYPES:
+            raise UnsupportedMediaTypeError(
+                "Supported video formats: .mp4, .mov, .mkv, .webm and .m4v"
+            )
+        if content_type and content_type not in _ALLOWED_VIDEO_MIME_TYPES:
+            raise UnsupportedMediaTypeError(f"Unsupported video content type: {content_type}")
+        if not data:
+            raise InvalidDocumentError("Uploaded video is empty")
+        if len(data) > self._settings.max_video_size_bytes:
+            raise InvalidDocumentError(
+                f"Video exceeds the {self._settings.max_video_size_mb} MB limit"
+            )
+        metadata = self._parse_metadata(metadata_json)
+
+        upload_dir = self._settings.upload_dir
+        await asyncio.to_thread(upload_dir.mkdir, parents=True, exist_ok=True)
+        storage_path = upload_dir / f"{uuid4()}{suffix}"
+        await asyncio.to_thread(storage_path.write_bytes, data)
+        checksum = hashlib.sha256(data).hexdigest()
+        try:
+            return await self._repository.create(
+                title=title,
+                source_type=SourceType.VIDEO,
+                content_text=None,
+                original_filename=Path(filename).name,
+                storage_path=storage_path,
+                mime_type=_VIDEO_TYPES[suffix],
+                size_bytes=len(data),
+                checksum_sha256=checksum,
+                specialty=specialty,
+                lecture_date=lecture_date,
+                language=language,
+                metadata={
+                    **metadata,
+                    "transcription_status": "pending",
+                    "asr_model": self._settings.asr_model_name,
                 },
             )
         except Exception:

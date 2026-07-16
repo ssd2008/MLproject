@@ -4,6 +4,7 @@ export const SOURCE_LABELS: Record<SourceType, string> = {
   pdf: "PDF",
   url: "URL",
   text: "Текст",
+  video: "Видео",
 };
 
 export const STATUS_LABELS: Record<DocumentStatus, string> = {
@@ -36,10 +37,32 @@ export function formatScore(value: number | null | undefined): string {
   return value === null || value === undefined ? "—" : value.toFixed(3);
 }
 
-export function pageLabel(start: number | null, end: number | null): string {
-  if (!start) return "Без номера страницы";
-  if (!end || start === end) return `Страница ${start}`;
-  return `Страницы ${start}–${end}`;
+export function formatTimecode(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  const totalSeconds = Math.max(0, Math.floor(value));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+export function sourceLocationLabel(
+  pageStart: number | null,
+  pageEnd: number | null,
+  timeStart: number | null,
+  timeEnd: number | null,
+): string {
+  if (timeStart !== null) {
+    const start = formatTimecode(timeStart);
+    const end = timeEnd !== null ? formatTimecode(timeEnd) : start;
+    return start === end ? `Тайм-код ${start}` : `Тайм-код ${start}–${end}`;
+  }
+  if (!pageStart) return "Без номера страницы";
+  if (!pageEnd || pageStart === pageEnd) return `Страница ${pageStart}`;
+  return `Страницы ${pageStart}–${pageEnd}`;
 }
 
 export function cleanOptional(value: string): string | undefined {

@@ -24,9 +24,18 @@ class PageSpan:
 
 
 @dataclass(frozen=True, slots=True)
+class TimedTextSpan:
+    start_seconds: float
+    end_seconds: float
+    char_start: int
+    char_end: int
+
+
+@dataclass(frozen=True, slots=True)
 class ExtractedDocument:
     text: str
     page_spans: tuple[PageSpan, ...] = ()
+    time_spans: tuple[TimedTextSpan, ...] = ()
 
 
 def clean_text(text: str) -> str:

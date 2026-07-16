@@ -25,6 +25,8 @@ class ChunkPayload(BaseModel):
     char_end: int = Field(gt=0)
     page_start: int | None = Field(default=None, ge=1)
     page_end: int | None = Field(default=None, ge=1)
+    time_start_seconds: float | None = Field(default=None, ge=0)
+    time_end_seconds: float | None = Field(default=None, ge=0)
     section_title: str | None = Field(default=None, max_length=500)
     document_title: str = Field(min_length=1, max_length=1000)
     source_type: SourceType
@@ -47,6 +49,14 @@ class ChunkPayload(BaseModel):
             and self.page_end < self.page_start
         ):
             raise ValueError("page_end cannot be smaller than page_start")
+        if (self.time_start_seconds is None) != (self.time_end_seconds is None):
+            raise ValueError("time_start_seconds and time_end_seconds must be set together")
+        if (
+            self.time_start_seconds is not None
+            and self.time_end_seconds is not None
+            and self.time_end_seconds < self.time_start_seconds
+        ):
+            raise ValueError("time_end_seconds cannot be smaller than time_start_seconds")
         if self.lecture_date is None and self.lecture_date_ordinal is not None:
             raise ValueError("lecture_date_ordinal requires lecture_date")
         if self.lecture_date is not None and self.lecture_date_ordinal != self.lecture_date.toordinal():
