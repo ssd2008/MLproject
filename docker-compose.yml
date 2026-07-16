@@ -20,6 +20,7 @@ x-ml-environment: &ml-environment
   ASR_VAD_FILTER: "true"
   VIDEO_CHUNK_DURATION_SECONDS: 20
   VIDEO_CHUNK_OVERLAP_SECONDS: 2
+  VIDEO_CONTEXT_NEIGHBOR_CHUNKS: 1
   ANSWER_BACKEND: extractive
   HF_HOME: /models/huggingface
 

@@ -31,6 +31,12 @@ class VectorSearchResult:
     payload: ChunkPayload
 
 
+@dataclass(frozen=True, slots=True)
+class StoredVectorChunk:
+    point_id: UUID
+    payload: ChunkPayload
+
+
 class VectorRepository:
     def __init__(
         self,
@@ -101,6 +107,13 @@ class VectorRepository:
         if not all(math.isfinite(value) for value in values):
             raise ValueError("Vector contains a non-finite value")
         return values
+
+    @staticmethod
+    def _parse_payload(payload: dict | None) -> ChunkPayload:
+        try:
+            return ChunkPayload.model_validate(payload or {})
+        except ValidationError as exc:
+            raise VectorRepositoryError("Invalid chunk payload stored in Qdrant") from exc
 
     async def replace_document_chunks(
         self,
@@ -207,17 +220,47 @@ class VectorRepository:
             with_payload=True,
             with_vectors=False,
         )
-        results: list[VectorSearchResult] = []
-        for point in response.points:
-            try:
-                payload = ChunkPayload.model_validate(point.payload or {})
-            except ValidationError as exc:
-                raise VectorRepositoryError("Invalid chunk payload stored in Qdrant") from exc
-            results.append(
-                VectorSearchResult(
-                    point_id=UUID(str(point.id)),
-                    score=float(point.score),
-                    payload=payload,
-                )
+        return [
+            VectorSearchResult(
+                point_id=UUID(str(point.id)),
+                score=float(point.score),
+                payload=self._parse_payload(point.payload),
             )
-        return results
+            for point in response.points
+        ]
+
+    async def get_document_chunks(
+        self,
+        document_id: UUID,
+        chunk_indexes: Sequence[int],
+    ) -> list[StoredVectorChunk]:
+        indexes = sorted({int(index) for index in chunk_indexes if index >= 0})
+        if not indexes:
+            return []
+        records, _ = await self._client.scroll(
+            collection_name=self._collection_name,
+            scroll_filter=models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="document_id",
+                        match=models.MatchValue(value=str(document_id)),
+                    ),
+                    models.FieldCondition(
+                        key="chunk_index",
+                        match=models.MatchAny(any=indexes),
+                    ),
+                ]
+            ),
+            limit=len(indexes),
+            with_payload=True,
+            with_vectors=False,
+        )
+        chunks = [
+            StoredVectorChunk(
+                point_id=UUID(str(record.id)),
+                payload=self._parse_payload(record.payload),
+            )
+            for record in records
+        ]
+        chunks.sort(key=lambda chunk: chunk.payload.chunk_index)
+        return chunks

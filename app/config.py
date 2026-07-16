@@ -70,6 +70,7 @@ class Settings(BaseSettings):
     chunk_overlap_tokens: int = Field(default=80, ge=0, le=2000)
     video_chunk_duration_seconds: float = Field(default=20.0, ge=3.0, le=120.0)
     video_chunk_overlap_seconds: float = Field(default=2.0, ge=0.0, le=30.0)
+    video_context_neighbor_chunks: int = Field(default=1, ge=0, le=5)
     retrieval_top_k: int = Field(default=10, ge=1, le=100)
     retrieval_candidate_k: int = Field(default=30, ge=1, le=300)
     minimum_retrieval_score: float | None = Field(default=None, ge=-1.0, le=1.0)
@@ -111,7 +112,7 @@ class Settings(BaseSettings):
                 "video_chunk_overlap_seconds must be smaller than video_chunk_duration_seconds"
             )
         if self.retrieval_candidate_k < self.retrieval_top_k:
-            raise ValueError("retrieval_candidate_k cannot be smaller than retrieval_top_k")
+            raise ValueError("retrieval_candidate_k cannot be smaller than top_k")
         if self.answer_backend == "openai" and self.openai_api_key is None:
             raise ValueError("OPENAI_API_KEY is required when ANSWER_BACKEND=openai")
         return self

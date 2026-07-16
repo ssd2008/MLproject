@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import time
+from collections.abc import Sequence
 
+from app.qdrant_schema import ChunkPayload
 from app.repositories.vector_repository import VectorRepository, VectorSearchResult
-from app.schemas import QueryRequest, SearchResponse, SearchResult
+from app.schemas import QueryRequest, SearchResponse, SearchResult, SourceType
 from app.services.embedding_service import EmbeddingService
 from app.services.rerank_service import RerankService
 
@@ -15,10 +18,14 @@ class SearchService:
         vectors: VectorRepository,
         embeddings: EmbeddingService,
         reranker: RerankService,
+        video_context_neighbor_chunks: int = 1,
     ) -> None:
+        if video_context_neighbor_chunks < 0:
+            raise ValueError("video_context_neighbor_chunks must be non-negative")
         self._vectors = vectors
         self._embeddings = embeddings
         self._reranker = reranker
+        self._video_context_neighbor_chunks = video_context_neighbor_chunks
 
     async def search(self, request: QueryRequest) -> SearchResponse:
         started = time.perf_counter()
@@ -45,10 +52,14 @@ class SearchService:
             for candidate, rerank_score in zip(candidates, rerank_scores, strict=True)
         ]
         ranked.sort(key=lambda item: item[2], reverse=True)
+        selected = self._select_distinct_candidates(ranked, request.top_k)
+        expanded_candidates = await asyncio.gather(
+            *(self._expand_video_context(candidate) for candidate, _, _ in selected)
+        )
         results = [
             self._to_result(rank, candidate, rerank_score, final_score)
-            for rank, (candidate, rerank_score, final_score) in enumerate(
-                ranked[: request.top_k],
+            for rank, (candidate, (_, rerank_score, final_score)) in enumerate(
+                zip(expanded_candidates, selected, strict=True),
                 start=1,
             )
         ]
@@ -58,6 +69,101 @@ class SearchService:
             total_candidates=len(candidates),
             took_ms=(time.perf_counter() - started) * 1000,
         )
+
+    def _select_distinct_candidates(
+        self,
+        ranked: Sequence[tuple[VectorSearchResult, float | None, float]],
+        limit: int,
+    ) -> list[tuple[VectorSearchResult, float | None, float]]:
+        selected: list[tuple[VectorSearchResult, float | None, float]] = []
+        accepted_video_indexes: dict[object, list[int]] = {}
+        radius = self._video_context_neighbor_chunks
+
+        for item in ranked:
+            candidate = item[0]
+            payload = candidate.payload
+            if payload.source_type == SourceType.VIDEO and radius > 0:
+                indexes = accepted_video_indexes.setdefault(payload.document_id, [])
+                if any(abs(payload.chunk_index - index) <= radius for index in indexes):
+                    continue
+                indexes.append(payload.chunk_index)
+            selected.append(item)
+            if len(selected) == limit:
+                break
+        return selected
+
+    async def _expand_video_context(
+        self,
+        candidate: VectorSearchResult,
+    ) -> VectorSearchResult:
+        payload = candidate.payload
+        radius = self._video_context_neighbor_chunks
+        if payload.source_type != SourceType.VIDEO or radius == 0:
+            return candidate
+
+        indexes = range(
+            max(0, payload.chunk_index - radius),
+            payload.chunk_index + radius + 1,
+        )
+        stored = await self._vectors.get_document_chunks(payload.document_id, list(indexes))
+        chunks_by_index = {chunk.payload.chunk_index: chunk.payload for chunk in stored}
+        chunks_by_index[payload.chunk_index] = payload
+        ordered = [chunks_by_index[index] for index in sorted(chunks_by_index)]
+        if len(ordered) <= 1:
+            return candidate
+
+        merged_payload = self._merge_payloads(payload, ordered)
+        return VectorSearchResult(
+            point_id=candidate.point_id,
+            score=candidate.score,
+            payload=merged_payload,
+        )
+
+    @classmethod
+    def _merge_payloads(
+        cls,
+        central: ChunkPayload,
+        chunks: Sequence[ChunkPayload],
+    ) -> ChunkPayload:
+        merged_text = cls._merge_text(chunks)
+        time_starts = [
+            chunk.time_start_seconds
+            for chunk in chunks
+            if chunk.time_start_seconds is not None
+        ]
+        time_ends = [
+            chunk.time_end_seconds for chunk in chunks if chunk.time_end_seconds is not None
+        ]
+        page_starts = [chunk.page_start for chunk in chunks if chunk.page_start is not None]
+        page_ends = [chunk.page_end for chunk in chunks if chunk.page_end is not None]
+        return central.model_copy(
+            update={
+                "text": merged_text,
+                "token_count": len(merged_text.split()),
+                "char_start": min(chunk.char_start for chunk in chunks),
+                "char_end": max(chunk.char_end for chunk in chunks),
+                "page_start": min(page_starts) if page_starts else None,
+                "page_end": max(page_ends) if page_ends else None,
+                "time_start_seconds": min(time_starts) if time_starts else None,
+                "time_end_seconds": max(time_ends) if time_ends else None,
+            }
+        )
+
+    @staticmethod
+    def _merge_text(chunks: Sequence[ChunkPayload]) -> str:
+        ordered = sorted(chunks, key=lambda chunk: (chunk.char_start, chunk.chunk_index))
+        first = ordered[0]
+        pieces = [first.text]
+        covered_end = first.char_end
+        for chunk in ordered[1:]:
+            if chunk.char_end <= covered_end:
+                continue
+            overlap_chars = max(0, covered_end - chunk.char_start)
+            suffix = chunk.text[overlap_chars:].lstrip()
+            if suffix:
+                pieces.append(suffix)
+            covered_end = chunk.char_end
+        return " ".join(piece.strip() for piece in pieces if piece.strip())
 
     @staticmethod
     def _final_score(candidate: VectorSearchResult, rerank_score: float | None) -> float:
