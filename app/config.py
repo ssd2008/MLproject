@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "Medical Learning Assistant"
-    app_version: str = "0.2.0"
+    app_version: str = "0.3.0"
     app_env: Literal["local", "test", "production"] = "local"
     debug: bool = False
     api_prefix: str = "/api/v1"
@@ -59,17 +59,27 @@ class Settings(BaseSettings):
     openai_api_key: SecretStr | None = None
     openai_model: str = "gpt-4.1-mini"
 
+    asr_backend: Literal["disabled", "faster-whisper"] = "faster-whisper"
+    asr_model_name: str = "small"
+    asr_device: Literal["auto", "cpu", "cuda"] = "cpu"
+    asr_compute_type: Literal["int8", "float16", "float32", "int8_float16"] = "int8"
+    asr_beam_size: int = Field(default=5, ge=1, le=20)
+    asr_vad_filter: bool = True
+
     chunk_size_tokens: int = Field(default=400, ge=50, le=5000)
     chunk_overlap_tokens: int = Field(default=80, ge=0, le=2000)
+    video_chunk_duration_seconds: float = Field(default=10.0, ge=3.0, le=120.0)
+    video_chunk_overlap_seconds: float = Field(default=2.0, ge=0.0, le=30.0)
     retrieval_top_k: int = Field(default=10, ge=1, le=100)
     retrieval_candidate_k: int = Field(default=30, ge=1, le=300)
     minimum_retrieval_score: float | None = Field(default=None, ge=-1.0, le=1.0)
 
     max_document_size_mb: int = Field(default=10, ge=1, le=500)
+    max_video_size_mb: int = Field(default=500, ge=1, le=5000)
     upload_dir: Path = BASE_DIR / "data" / "uploads"
     url_fetch_timeout_seconds: float = Field(default=20.0, gt=0, le=120)
     url_fetch_max_redirects: int = Field(default=5, ge=0, le=20)
-    url_user_agent: str = "MedicalLearningAssistant/0.2"
+    url_user_agent: str = "MedicalLearningAssistant/0.3"
 
     @field_validator("log_level", mode="before")
     @classmethod
@@ -96,6 +106,10 @@ class Settings(BaseSettings):
             raise ValueError("database_pool_min_size cannot exceed database_pool_max_size")
         if self.chunk_overlap_tokens >= self.chunk_size_tokens:
             raise ValueError("chunk_overlap_tokens must be smaller than chunk_size_tokens")
+        if self.video_chunk_overlap_seconds >= self.video_chunk_duration_seconds:
+            raise ValueError(
+                "video_chunk_overlap_seconds must be smaller than video_chunk_duration_seconds"
+            )
         if self.retrieval_candidate_k < self.retrieval_top_k:
             raise ValueError("retrieval_candidate_k cannot be smaller than retrieval_top_k")
         if self.answer_backend == "openai" and self.openai_api_key is None:
@@ -109,6 +123,10 @@ class Settings(BaseSettings):
     @property
     def max_document_size_bytes(self) -> int:
         return self.max_document_size_mb * 1024 * 1024
+
+    @property
+    def max_video_size_bytes(self) -> int:
+        return self.max_video_size_mb * 1024 * 1024
 
     def get_database_url(self) -> str:
         return self.database_url.get_secret_value()

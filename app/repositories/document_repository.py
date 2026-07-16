@@ -98,7 +98,7 @@ class DocumentRepository:
         *,
         title: str,
         source_type: SourceType,
-        content_text: str,
+        content_text: str | None,
         source_url: str | None = None,
         original_filename: str | None = None,
         storage_path: Path | None = None,
@@ -226,6 +226,26 @@ class DocumentRepository:
             document_id,
             status.value,
             error_message,
+        )
+        return self._to_internal(record).to_public() if record else None
+
+    async def update_extracted_content(
+        self,
+        document_id: UUID,
+        *,
+        content_text: str,
+        metadata: dict[str, Any],
+    ) -> DocumentOut | None:
+        record = await self._pool.fetchrow(
+            f"""
+            UPDATE documents
+            SET content_text = $2, metadata = $3, error_message = NULL
+            WHERE id = $1
+            RETURNING {_DOCUMENT_COLUMNS}
+            """,
+            document_id,
+            content_text,
+            metadata,
         )
         return self._to_internal(record).to_public() if record else None
 

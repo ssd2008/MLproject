@@ -21,6 +21,7 @@ class SourceType(StrEnum):
     PDF = "pdf"
     URL = "url"
     TEXT = "text"
+    VIDEO = "video"
 
 
 class DocumentStatus(StrEnum):
@@ -49,8 +50,10 @@ class DocumentCreate(APIModel):
 
     @model_validator(mode="after")
     def validate_source_payload(self) -> "DocumentCreate":
-        if self.source_type == SourceType.PDF:
-            raise ValueError("PDF files must be uploaded through /documents/upload")
+        if self.source_type in {SourceType.PDF, SourceType.VIDEO}:
+            raise ValueError(
+                "PDF and video files must be uploaded through their upload endpoints"
+            )
         if self.source_type == SourceType.URL and self.source_url is None:
             raise ValueError("source_url is required for source_type='url'")
         if self.source_type == SourceType.TEXT and not self.raw_text:
@@ -172,6 +175,8 @@ class SearchResult(APIModel):
     language: str
     page_start: int | None = Field(default=None, ge=1)
     page_end: int | None = Field(default=None, ge=1)
+    time_start_seconds: float | None = Field(default=None, ge=0)
+    time_end_seconds: float | None = Field(default=None, ge=0)
     section_title: str | None = None
     char_start: int = Field(ge=0)
     char_end: int = Field(gt=0)
@@ -207,6 +212,8 @@ class Citation(APIModel):
     quote: str = Field(min_length=1)
     page_start: int | None = Field(default=None, ge=1)
     page_end: int | None = Field(default=None, ge=1)
+    time_start_seconds: float | None = Field(default=None, ge=0)
+    time_end_seconds: float | None = Field(default=None, ge=0)
     section_title: str | None = None
     char_start: int = Field(ge=0)
     char_end: int = Field(gt=0)

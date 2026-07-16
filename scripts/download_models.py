@@ -7,14 +7,16 @@ from app.config import settings
 
 def main() -> None:
     try:
+        from faster_whisper import WhisperModel
         from sentence_transformers import CrossEncoder, SentenceTransformer
     except ImportError as exc:
         raise RuntimeError(
-            "sentence-transformers is not installed; build the image with requirements-ml.txt"
+            "ML dependencies are not installed; build the image with requirements-ml.txt"
         ) from exc
 
     embedding_device = "cpu" if settings.embedding_device == "auto" else settings.embedding_device
     reranker_device = "cpu" if settings.reranker_device == "auto" else settings.reranker_device
+    asr_device = "cpu" if settings.asr_device == "auto" else settings.asr_device
 
     print(f"Downloading embedding model: {settings.embedding_model_name}", flush=True)
     embedding_model = SentenceTransformer(
@@ -37,6 +39,16 @@ def main() -> None:
     )
     del reranker_model
     gc.collect()
+
+    if settings.asr_backend != "disabled":
+        print(f"Downloading ASR model: {settings.asr_model_name}", flush=True)
+        asr_model = WhisperModel(
+            settings.asr_model_name,
+            device=asr_device,
+            compute_type=settings.asr_compute_type,
+        )
+        del asr_model
+        gc.collect()
 
     print("ML models are available in the Hugging Face cache", flush=True)
 

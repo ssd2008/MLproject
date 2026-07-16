@@ -62,7 +62,11 @@ class SearchService:
     @staticmethod
     def _final_score(candidate: VectorSearchResult, rerank_score: float | None) -> float:
         retrieval_normalized = max(0.0, min(1.0, (candidate.score + 1.0) / 2.0))
-        return retrieval_normalized if rerank_score is None else 0.25 * retrieval_normalized + 0.75 * rerank_score
+        return (
+            retrieval_normalized
+            if rerank_score is None
+            else 0.25 * retrieval_normalized + 0.75 * rerank_score
+        )
 
     @staticmethod
     def _to_result(
@@ -86,6 +90,8 @@ class SearchService:
             language=payload.language,
             page_start=payload.page_start,
             page_end=payload.page_end,
+            time_start_seconds=payload.time_start_seconds,
+            time_end_seconds=payload.time_end_seconds,
             section_title=payload.section_title,
             char_start=payload.char_start,
             char_end=payload.char_end,

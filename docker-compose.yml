@@ -16,6 +16,14 @@ x-ml-environment: &ml-environment
   RERANKER_MODEL_NAME: BAAI/bge-reranker-v2-m3
   RERANKER_BATCH_SIZE: 4
   RERANKER_DEVICE: cpu
+  ASR_BACKEND: faster-whisper
+  ASR_MODEL_NAME: small
+  ASR_DEVICE: cpu
+  ASR_COMPUTE_TYPE: int8
+  ASR_BEAM_SIZE: 5
+  ASR_VAD_FILTER: "true"
+  VIDEO_CHUNK_DURATION_SECONDS: 10
+  VIDEO_CHUNK_OVERLAP_SECONDS: 2
   ANSWER_BACKEND: extractive
   HF_HOME: /models/huggingface
 
@@ -76,6 +84,7 @@ services:
       QDRANT_URL: http://qdrant:6333
       QDRANT_COLLECTION_NAME: document_chunks_e5_large_v1
       MAX_DOCUMENT_SIZE_MB: 10
+      MAX_VIDEO_SIZE_MB: 500
       API_HOST: 0.0.0.0
     ports:
       - "8000:8000"
@@ -94,7 +103,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 30
-      start_period: 20s
+      start_period: 30s
 
   frontend:
     build:

@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS documents (
     mime_type VARCHAR(255),
     size_bytes BIGINT,
     checksum_sha256 VARCHAR(64),
-    content_text TEXT NOT NULL,
+    content_text TEXT,
     specialty VARCHAR(100),
     lecture_date DATE,
     language VARCHAR(16) NOT NULL DEFAULT 'ru',
@@ -20,13 +20,16 @@ CREATE TABLE IF NOT EXISTS documents (
     error_message TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT documents_source_type_check CHECK (source_type IN ('pdf', 'url', 'text')),
+    CONSTRAINT documents_source_type_check CHECK (source_type IN ('pdf', 'url', 'text', 'video')),
     CONSTRAINT documents_status_check CHECK (status IN ('uploaded', 'processing', 'ready', 'failed')),
     CONSTRAINT documents_source_url_check CHECK (
         (source_type = 'url' AND source_url IS NOT NULL AND BTRIM(source_url) <> '')
         OR (source_type <> 'url' AND source_url IS NULL)
     ),
-    CONSTRAINT documents_content_text_check CHECK (BTRIM(content_text) <> ''),
+    CONSTRAINT documents_content_text_check CHECK (
+        (source_type = 'video' AND (content_text IS NULL OR BTRIM(content_text) <> ''))
+        OR (source_type <> 'video' AND content_text IS NOT NULL AND BTRIM(content_text) <> '')
+    ),
     CONSTRAINT documents_size_bytes_check CHECK (size_bytes IS NULL OR size_bytes >= 0),
     CONSTRAINT documents_checksum_sha256_check CHECK (
         checksum_sha256 IS NULL OR checksum_sha256 ~ '^[0-9a-f]{64}$'

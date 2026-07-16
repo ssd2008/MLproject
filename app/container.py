@@ -23,6 +23,7 @@ from app.services.extraction_service import ExtractionService
 from app.services.indexing_service import IndexingService
 from app.services.rerank_service import RerankService, create_rerank_service
 from app.services.search_service import SearchService
+from app.services.transcription_service import TranscriptionService
 
 
 @dataclass(slots=True)
@@ -36,6 +37,7 @@ class AppContainer:
     vectors: VectorRepository
     embeddings: EmbeddingService
     reranker: RerankService
+    transcription: TranscriptionService
     document_service: DocumentService
     indexing_service: IndexingService
     search_service: SearchService
@@ -69,6 +71,7 @@ async def create_container(settings: Settings) -> AppContainer:
         chunking = ChunkingService()
         embeddings = create_embedding_service(settings)
         reranker = create_rerank_service(settings)
+        transcription = TranscriptionService(settings)
         document_service = DocumentService(
             settings=settings,
             repository=documents,
@@ -82,6 +85,7 @@ async def create_container(settings: Settings) -> AppContainer:
             vectors=vectors,
             chunking=chunking,
             embeddings=embeddings,
+            transcription=transcription,
         )
         search_service = SearchService(
             vectors=vectors,
@@ -105,6 +109,7 @@ async def create_container(settings: Settings) -> AppContainer:
             vectors=vectors,
             embeddings=embeddings,
             reranker=reranker,
+            transcription=transcription,
             document_service=document_service,
             indexing_service=indexing_service,
             search_service=search_service,

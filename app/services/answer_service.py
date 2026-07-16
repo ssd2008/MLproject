@@ -156,6 +156,8 @@ class AnswerService:
                     quote=chunk.text[:1000],
                     page_start=chunk.page_start,
                     page_end=chunk.page_end,
+                    time_start_seconds=chunk.time_start_seconds,
+                    time_end_seconds=chunk.time_end_seconds,
                     section_title=chunk.section_title,
                     char_start=chunk.char_start,
                     char_end=chunk.char_end,

@@ -93,6 +93,13 @@ export const api = {
     });
   },
 
+  async uploadVideo(formData: FormData): Promise<DocumentItem> {
+    return request<DocumentItem>("/documents/upload/video", {
+      method: "POST",
+      body: formData,
+    });
+  },
+
   async deleteDocument(documentId: string): Promise<void> {
     return request<void>(`/documents/${documentId}`, { method: "DELETE" });
   },
