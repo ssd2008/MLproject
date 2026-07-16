@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000,http://localhost:5173"
 
     database_url: SecretStr = SecretStr(
-        "postgresql://med_user:med_password@localhost:5432/med_assistant"
+        "postgresql://med_user:med_pass@localhost:5432/med_assistant"
     )
     database_pool_min_size: int = Field(default=1, ge=1, le=50)
     database_pool_max_size: int = Field(default=10, ge=1, le=100)

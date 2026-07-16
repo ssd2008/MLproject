@@ -7,6 +7,10 @@ __pycache__/
 .coverage
 htmlcov/
 data/uploads/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+*.tsbuildinfo
 .DS_Store
 .idea/
 .vscode/
