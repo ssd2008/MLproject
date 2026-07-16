@@ -1,43 +1,34 @@
-from qdrant_client import QdrantClient
+from __future__ import annotations
+
+import asyncio
+
+from qdrant_client import AsyncQdrantClient
 
 from app.config import settings
-from app.qdrant_schema import ensure_qdrant_collection
+from app.repositories.vector_repository import VectorRepository
 
 
-def main() -> None:
-    client = QdrantClient(
+async def main() -> None:
+    client = AsyncQdrantClient(
         url=settings.qdrant_url,
-        api_key=settings.qdrant_api_key,
-        timeout=10.0,
+        api_key=settings.get_qdrant_api_key(),
+        timeout=settings.qdrant_timeout_seconds,
     )
-
     try:
-        ensure_qdrant_collection(
+        repository = VectorRepository(
             client,
             collection_name=settings.qdrant_collection_name,
             vector_size=settings.embedding_dimension,
+            upsert_batch_size=settings.qdrant_upsert_batch_size,
         )
-
-        collection_info = client.get_collection(
-            settings.qdrant_collection_name
-        )
-
+        await repository.ensure_collection()
         print(
-            "Qdrant collection is ready:",
-            settings.qdrant_collection_name,
-        )
-        print("Status:", collection_info.status)
-        print(
-            "Points:",
-            collection_info.points_count,
-        )
-        print(
-            "Payload indexes:",
-            sorted(collection_info.payload_schema.keys()),
+            f"Qdrant collection {settings.qdrant_collection_name!r} is ready "
+            f"with dimension={settings.embedding_dimension}"
         )
     finally:
-        client.close()
+        await client.close()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
