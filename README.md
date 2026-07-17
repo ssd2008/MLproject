@@ -9,5 +9,6 @@
 
 ## Быстрый запуск -> [здесь](md/start.md)
 ## Полное описание -> [здесь](md/description.md)
+## Типовые проблемы -> [здесь](md/troubleshooting.md)
 ## API-спека -> [здесь](md/api_spec.md)
 ## Полная деинсталляция Асси -> [здесь](md/uninstall.md)
