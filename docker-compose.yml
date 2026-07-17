@@ -84,7 +84,7 @@ services:
       QDRANT_URL: http://qdrant:6333
       QDRANT_COLLECTION_NAME: document_chunks_e5_large_v1
       MAX_DOCUMENT_SIZE_MB: 10
-      MAX_VIDEO_SIZE_MB: 500
+      MAX_VIDEO_SIZE_MB: 2048
       API_HOST: 0.0.0.0
     ports:
       - "127.0.0.1:8000:8000"
