@@ -1,0 +1,34 @@
+name: bootstrap-frontend-lock
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - frontend/package.json
+      - .github/workflows/bootstrap-frontend-lock.yml
+
+permissions:
+  contents: write
+
+jobs:
+  generate-lock:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Generate package lock
+        working-directory: frontend
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - name: Commit lock and remove bootstrap workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/package-lock.json
+          git rm .github/workflows/bootstrap-frontend-lock.yml
+          git commit -m "Add frontend package lock"
+          git push origin master
