@@ -1,13 +1,13 @@
 # Типовые проблемы
 
-Для просмотра состояние контейнеров и логов:
+Для просмотра состояния контейнеров и логов:
 
 ```bash
-docker compose ps
+docker compose ps --all
 docker compose logs --tail=200
 ```
 
-В таблице `docker compose ps` сервисы `postgres`, `qdrant`, `api` и `frontend` должны быть запущены. Одноразовые сервисы `migrate` и `model-init` после успешного завершения могут иметь состояние `Exited (0)` — это нормально.
+В таблице `docker compose ps --all` сервисы `postgres`, `qdrant`, `api` и `frontend` должны быть запущены. Одноразовые сервисы `migrate` и `model-init` после успешного завершения могут иметь состояние `Exited (0)` — это нормально.
 
 ## `docker: command not found`
 
@@ -54,7 +54,7 @@ docker compose logs -f model-init
 - доступ в интернет;
 - свободное место на диске;
 - что Docker Desktop не остановлен;
-- отсутствие корпоративного proxy/firewall, блокирующего Hugging Face.
+- отсутствие корпоративного proxy/firewall, блокирующего Hugging Face и PyTorch CPU wheels.
 
 Повторный запуск использует постоянный cache volume и обычно быстрее.
 
@@ -80,16 +80,18 @@ docker builder prune
 docker system prune
 ```
 
-> Перед очисткой прочитай список удаляемых объектов. Не добавляй `--volumes`, если не готов удалить локальные данные других Docker-проектов.
+> Эти команды могут затрагивать неиспользуемые ресурсы других Docker-проектов. Не добавляй `--volumes`, если не готов удалить их локальные данные.
 
 ## Порт уже занят
 
-Проект использует порты:
+Проект публикует только локальные порты:
 
 - `3000` — frontend;
 - `8000` — API;
 - `5432` — PostgreSQL;
-- `6333` и `6334` — Qdrant.
+- `6333` — Qdrant HTTP API.
+
+Все port mappings привязаны к `127.0.0.1`, поэтому сервисы не выставляются напрямую в локальную сеть.
 
 ### macOS
 
@@ -109,14 +111,14 @@ Get-NetTCPConnection -LocalPort 5432 -ErrorAction SilentlyContinue
 Get-NetTCPConnection -LocalPort 6333 -ErrorAction SilentlyContinue
 ```
 
-Останови конфликтующий процесс или измени левую часть port mapping в `docker-compose.yml`, например:
+Останови конфликтующий процесс или измени опубликованный порт в `docker-compose.yml`, например:
 
 ```yaml
 ports:
-  - "8001:8000"
+  - "127.0.0.1:8001:8000"
 ```
 
-После этого API будет доступен на порту `8001`.
+После этого API будет доступен на `127.0.0.1:8001`.
 
 ## PostgreSQL сообщает `role "med_user" does not exist`
 
@@ -142,7 +144,7 @@ docker compose down -v
 docker compose up --build
 ```
 
-> Эта команда удалит все документы и индексы проекта.
+> Эта команда удалит все документы, индексы, загруженные файлы и кэш моделей проекта.
 
 ## API возвращает `503` на `/health`
 
@@ -158,7 +160,7 @@ curl http://127.0.0.1:8000/api/v1/health
 docker compose logs --tail=200 postgres qdrant api
 ```
 
-`503` означает, что PostgreSQL или Qdrant недоступны. Состояние `disabled` для ASR допустимо только в лёгком режиме.
+`503` означает, что PostgreSQL или Qdrant недоступны. ML-компоненты в `/health` показываются как настроенные backend-ы, но обычный healthcheck не выполняет тестовый inference и не загружает модели в память.
 
 ## Frontend не открывается, но API работает
 
@@ -198,6 +200,18 @@ http://127.0.0.1:3000
 ```bash
 docker compose logs --tail=300 api
 ```
+
+## URL не загружается
+
+Backend принимает только абсолютные HTTP(S)-ссылки на публичные адреса. Запрещены:
+
+- private, loopback, link-local, multicast и reserved IP-адреса;
+- URL со встроенными логином или паролем;
+- редиректы на локальные или приватные сети;
+- ответы с неподдерживаемым `Content-Type`;
+- страницы больше установленного лимита.
+
+Каждый redirect проверяется до выполнения следующего запроса. Переменные proxy из окружения при загрузке URL не используются.
 
 ## После смены embedding-модели Qdrant сообщает несовпадение размерности
 
@@ -240,7 +254,7 @@ wsl --shutdown
 ## Получить полный диагностический вывод
 
 ```bash
-docker compose ps
+docker compose ps --all
 docker compose images
 docker compose logs --tail=300
 docker system df
