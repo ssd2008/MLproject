@@ -7,7 +7,7 @@ docker compose down -v --rmi all --remove-orphans
 docker builder prune
 ```
 
-Затем удалить сам репозиторий.
+Затем удаляем сам репозиторий.
 
 macOS/Linux:
 
