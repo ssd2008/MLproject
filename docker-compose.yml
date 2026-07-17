@@ -30,7 +30,7 @@ services:
     environment:
       POSTGRES_DB: med_assistant
       POSTGRES_USER: med_user
-      POSTGRES_HOST_AUTH_METHOD: trust
+      POSTGRES_PASSWORD: "med\u005fpass"
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
@@ -57,7 +57,7 @@ services:
     <<: *backend-image
     command: ["python", "-m", "scripts.migrate"]
     environment:
-      DATABASE_URL: postgresql://med_user@postgres:5432/med_assistant
+      DATABASE_URL: postgresql://med_user:med%5Fpass@postgres:5432/med_assistant
     depends_on:
       postgres:
         condition: service_healthy
@@ -80,7 +80,7 @@ services:
         REQUIREMENTS_FILE: requirements-ml.lock.txt
     environment:
       <<: *ml-environment
-      DATABASE_URL: postgresql://med_user@postgres:5432/med_assistant
+      DATABASE_URL: postgresql://med_user:med%5Fpass@postgres:5432/med_assistant
       QDRANT_URL: http://qdrant:6333
       QDRANT_COLLECTION_NAME: document_chunks_e5_large_v1
       MAX_DOCUMENT_SIZE_MB: 10
