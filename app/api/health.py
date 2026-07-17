@@ -4,9 +4,9 @@ import asyncio
 
 from fastapi import APIRouter, Depends, Response, status
 
+from app.constants import APP_DISPLAY_NAME
 from app.container import AppContainer
 from app.dependencies import get_container
-from app.main import APP_DISPLAY_NAME
 from app.schemas import ComponentHealth, HealthOut
 
 router = APIRouter(tags=["health"])
