@@ -23,7 +23,7 @@ interface DocumentsPageProps {
 }
 
 const MAX_PDF_SIZE_MB = 10;
-const MAX_VIDEO_SIZE_MB = 500;
+const MAX_VIDEO_SIZE_MB = 2 * 1024;
 const STATUS_TONES: Record<DocumentStatus, string> = {
   uploaded: "warning",
   processing: "info",
@@ -41,6 +41,10 @@ function sourceMark(sourceType: SourceType): string {
 function durationSeconds(document: DocumentItem): number | null {
   const value = document.metadata.duration_seconds;
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function uploadLimitLabel(mode: UploadMode): string {
+  return mode === "video" ? "2 ГБ" : `${MAX_PDF_SIZE_MB} МБ`;
 }
 
 export function DocumentsPage({
@@ -111,7 +115,7 @@ export function DocumentsPage({
     if (selectedFile && selectedFile.size > maxMb * 1024 * 1024) {
       event.target.value = "";
       setFile(null);
-      notify(`Размер файла не должен превышать ${maxMb} МБ`, "error");
+      notify(`Размер файла не должен превышать ${uploadLimitLabel(uploadMode)}`, "error");
       return;
     }
     setFile(selectedFile);
@@ -181,7 +185,7 @@ export function DocumentsPage({
         if (!file) throw new Error(uploadMode === "video" ? "Выберите видеофайл" : "Выберите PDF-файл");
         const maxMb = uploadMode === "video" ? MAX_VIDEO_SIZE_MB : MAX_PDF_SIZE_MB;
         if (file.size > maxMb * 1024 * 1024) {
-          throw new Error(`Размер файла не должен превышать ${maxMb} МБ`);
+          throw new Error(`Размер файла не должен превышать ${uploadLimitLabel(uploadMode)}`);
         }
         const form = new FormData();
         form.append("file", file);
@@ -320,10 +324,10 @@ export function DocumentsPage({
 
             {(uploadMode === "pdf" || uploadMode === "video") && (
               <label className={`file-drop${file ? " file-drop--selected" : ""}`}>
-                <input type="file" accept={uploadMode === "video" ? "video/mp4,video/quicktime,video/webm,.mkv,.m4v" : "application/pdf,.pdf"} onChange={handleFileChange} />
+                <input type="file" accept={uploadMode === "video" ? "video/mp4,video/quicktime,video/webm,video/x-matroska,video/matroska,.mkv,.MKV,.m4v" : "application/pdf,.pdf"} onChange={handleFileChange} />
                 <span className="file-drop__icon">⇧</span>
                 <strong>{file ? file.name : uploadMode === "video" ? "Выберите видеофайл" : "Выберите PDF-файл"}</strong>
-                <small>{file ? formatBytes(file.size) : uploadMode === "video" ? `MP4, MOV, MKV, WEBM или M4V · до ${MAX_VIDEO_SIZE_MB} МБ` : `До ${MAX_PDF_SIZE_MB} МБ, требуется текстовый слой`}</small>
+                <small>{file ? formatBytes(file.size) : uploadMode === "video" ? "MP4, MOV, MKV, WEBM или M4V · до 2 ГБ" : `До ${MAX_PDF_SIZE_MB} МБ, требуется текстовый слой`}</small>
               </label>
             )}
             {uploadMode === "url" && <label className="field"><span>URL источника <b>*</b></span><input required type="url" value={sourceUrl} onChange={(event) => setSourceUrl(event.target.value)} placeholder="https://example.com/article" /></label>}
