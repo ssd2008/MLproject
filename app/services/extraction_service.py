@@ -4,9 +4,10 @@ import asyncio
 import ipaddress
 import re
 import socket
+from collections.abc import Collection
 from dataclasses import dataclass
 from io import BytesIO
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
@@ -14,6 +15,8 @@ from pypdf import PdfReader
 
 from app.config import Settings
 from app.exceptions import InvalidDocumentError, UnsupportedMediaTypeError
+
+_REDIRECT_STATUS_CODES = {301, 302, 303, 307, 308}
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,8 +50,14 @@ def clean_text(text: str) -> str:
 
 
 class ExtractionService:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        http_transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
         self._settings = settings
+        self._http_transport = http_transport
 
     def extract_text(self, raw_text: str) -> ExtractedDocument:
         text = clean_text(raw_text)
@@ -96,37 +105,56 @@ class ExtractionService:
         return ExtractedDocument(text=text, page_spans=tuple(spans))
 
     async def extract_url(self, url: str) -> ExtractedDocument:
-        await self._validate_public_url(url)
         timeout = httpx.Timeout(self._settings.url_fetch_timeout_seconds)
         headers = {"User-Agent": self._settings.url_user_agent}
+        current_url = url
+
         async with httpx.AsyncClient(
             timeout=timeout,
-            follow_redirects=True,
-            max_redirects=self._settings.url_fetch_max_redirects,
+            follow_redirects=False,
             headers=headers,
+            trust_env=False,
+            transport=self._http_transport,
         ) as client:
-            async with client.stream("GET", url) as response:
-                response.raise_for_status()
-                await self._validate_public_url(str(response.url))
-                content_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
-                allowed = {"text/html", "application/xhtml+xml", "text/plain"}
-                if content_type not in allowed:
-                    raise UnsupportedMediaTypeError(
-                        f"URL content type {content_type or 'unknown'} is not supported"
-                    )
-                data = bytearray()
-                async for block in response.aiter_bytes():
-                    data.extend(block)
-                    if len(data) > self._settings.max_document_size_bytes:
-                        raise InvalidDocumentError(
-                            f"Remote document exceeds the {self._settings.max_document_size_mb} MB limit"
-                        )
+            for redirect_count in range(self._settings.url_fetch_max_redirects + 1):
+                resolved_addresses = await self._resolve_public_addresses(current_url)
+                async with client.stream("GET", current_url) as response:
+                    self._validate_connected_peer(response, resolved_addresses)
 
-        encoding = response.encoding or "utf-8"
-        raw = bytes(data).decode(encoding, errors="replace")
-        if content_type == "text/plain":
-            return self.extract_text(raw)
-        return self.extract_text(self._html_to_text(raw))
+                    if response.status_code in _REDIRECT_STATUS_CODES:
+                        if redirect_count >= self._settings.url_fetch_max_redirects:
+                            raise InvalidDocumentError("URL exceeded the redirect limit")
+                        location = response.headers.get("location")
+                        if not location:
+                            raise InvalidDocumentError("URL redirect is missing the Location header")
+                        current_url = urljoin(str(response.url), location)
+                        continue
+
+                    response.raise_for_status()
+                    content_type = (
+                        response.headers.get("content-type", "").split(";", 1)[0].lower()
+                    )
+                    allowed = {"text/html", "application/xhtml+xml", "text/plain"}
+                    if content_type not in allowed:
+                        raise UnsupportedMediaTypeError(
+                            f"URL content type {content_type or 'unknown'} is not supported"
+                        )
+                    data = bytearray()
+                    async for block in response.aiter_bytes():
+                        data.extend(block)
+                        if len(data) > self._settings.max_document_size_bytes:
+                            raise InvalidDocumentError(
+                                "Remote document exceeds the "
+                                f"{self._settings.max_document_size_mb} MB limit"
+                            )
+                    encoding = response.encoding or "utf-8"
+
+                raw = bytes(data).decode(encoding, errors="replace")
+                if content_type == "text/plain":
+                    return self.extract_text(raw)
+                return self.extract_text(self._html_to_text(raw))
+
+        raise InvalidDocumentError("URL could not be fetched")
 
     @staticmethod
     def _html_to_text(html: str) -> str:
@@ -137,28 +165,65 @@ class ExtractionService:
         return main.get_text("\n", strip=True)
 
     @staticmethod
-    async def _validate_public_url(url: str) -> None:
+    def _is_forbidden_address(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+        return (
+            address.is_private
+            or address.is_loopback
+            or address.is_link_local
+            or address.is_multicast
+            or address.is_reserved
+            or address.is_unspecified
+        )
+
+    @classmethod
+    async def _resolve_public_addresses(
+        cls,
+        url: str,
+    ) -> set[ipaddress.IPv4Address | ipaddress.IPv6Address]:
         parsed = urlparse(url)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname:
             raise InvalidDocumentError("Only absolute HTTP(S) URLs are supported")
-        try:
-            addresses = await asyncio.to_thread(
-                socket.getaddrinfo,
-                parsed.hostname,
-                parsed.port or (443 if parsed.scheme == "https" else 80),
-                type=socket.SOCK_STREAM,
-            )
-        except socket.gaierror as exc:
-            raise InvalidDocumentError("URL hostname cannot be resolved") from exc
+        if parsed.username is not None or parsed.password is not None:
+            raise InvalidDocumentError("URLs containing credentials are forbidden")
 
-        for address in addresses:
-            ip = ipaddress.ip_address(address[4][0])
-            if (
-                ip.is_private
-                or ip.is_loopback
-                or ip.is_link_local
-                or ip.is_multicast
-                or ip.is_reserved
-                or ip.is_unspecified
-            ):
-                raise InvalidDocumentError("URLs resolving to private or local networks are forbidden")
+        try:
+            literal_address = ipaddress.ip_address(parsed.hostname)
+        except ValueError:
+            literal_address = None
+
+        if literal_address is not None:
+            addresses = {literal_address}
+        else:
+            try:
+                resolved = await asyncio.to_thread(
+                    socket.getaddrinfo,
+                    parsed.hostname,
+                    parsed.port or (443 if parsed.scheme == "https" else 80),
+                    type=socket.SOCK_STREAM,
+                )
+            except socket.gaierror as exc:
+                raise InvalidDocumentError("URL hostname cannot be resolved") from exc
+            addresses = {ipaddress.ip_address(item[4][0].split("%", 1)[0]) for item in resolved}
+
+        if not addresses or any(cls._is_forbidden_address(address) for address in addresses):
+            raise InvalidDocumentError("URLs resolving to private or local networks are forbidden")
+        return addresses
+
+    @classmethod
+    def _validate_connected_peer(
+        cls,
+        response: httpx.Response,
+        resolved_addresses: Collection[ipaddress.IPv4Address | ipaddress.IPv6Address],
+    ) -> None:
+        network_stream = response.extensions.get("network_stream")
+        if network_stream is None or not hasattr(network_stream, "get_extra_info"):
+            return
+        server_address = network_stream.get_extra_info("server_addr")
+        if not server_address:
+            return
+        try:
+            peer = ipaddress.ip_address(str(server_address[0]).split("%", 1)[0])
+        except ValueError as exc:
+            raise InvalidDocumentError("Could not validate the URL connection address") from exc
+        if cls._is_forbidden_address(peer) or peer not in resolved_addresses:
+            raise InvalidDocumentError("URL connection address changed after DNS validation")
