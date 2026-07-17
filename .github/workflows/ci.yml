@@ -4,6 +4,10 @@ on:
   push:
     branches: [master, "agent/**"]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   backend:
@@ -14,7 +18,10 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - run: python -m pip install -r requirements-dev.txt
+          cache-dependency-path: requirements-dev.lock.txt
+      - run: python -m pip install -r requirements-dev.lock.txt
+      - name: Validate Docker Compose
+        run: docker compose config --quiet
       - name: Run Ruff
         id: ruff
         continue-on-error: true
@@ -29,6 +36,64 @@ jobs:
         if: steps.ruff.outcome == 'failure'
         run: exit 1
       - run: python -m pytest
+
+  integration:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://med_user@127.0.0.1:5432/med_assistant
+      QDRANT_URL: http://127.0.0.1:6333
+      QDRANT_COLLECTION_NAME: ci_document_chunks_v1
+      EMBEDDING_BACKEND: hash
+      RERANKER_BACKEND: lexical
+      ASR_BACKEND: disabled
+      ANSWER_BACKEND: extractive
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.lock.txt
+      - run: python -m pip install -r requirements-dev.lock.txt
+      - name: Start PostgreSQL and Qdrant
+        run: docker compose up -d postgres qdrant
+      - name: Wait for infrastructure
+        run: |
+          for attempt in {1..60}; do
+            postgres_id="$(docker compose ps -q postgres)"
+            qdrant_id="$(docker compose ps -q qdrant)"
+            postgres_status="$(docker inspect --format='{{.State.Health.Status}}' "$postgres_id" 2>/dev/null || true)"
+            qdrant_status="$(docker inspect --format='{{.State.Health.Status}}' "$qdrant_id" 2>/dev/null || true)"
+            if [ "$postgres_status" = healthy ] && [ "$qdrant_status" = healthy ]; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose ps --all
+          exit 1
+      - run: python -m scripts.migrate
+      - name: Start lightweight API
+        run: |
+          uvicorn app.main:app --host 127.0.0.1 --port 8000 > api-ci.log 2>&1 &
+          echo $! > api-ci.pid
+          for attempt in {1..60}; do
+            if curl --fail --silent http://127.0.0.1:8000/api/v1/health >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat api-ci.log
+          exit 1
+      - run: python -m scripts.smoke_test
+      - name: Print diagnostics
+        if: always()
+        run: |
+          cat api-ci.log 2>/dev/null || true
+          docker compose ps --all
+          docker compose logs --tail=200 postgres qdrant
+      - name: Stop integration services
+        if: always()
+        run: docker compose down -v --remove-orphans
 
   frontend:
     runs-on: ubuntu-latest
