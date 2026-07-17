@@ -12,7 +12,7 @@
 - Docker Compose для инфраструктуры;
 - pytest и Ruff для проверок.
 
-`Uvicorn` называется так в честь мифического единорога и является ASGI-сервером. `ASGI` — Asynchronous Server Gateway Interface, асинхронный интерфейс между Python web-приложением и сервером.
+`Uvicorn` — ASGI-сервер. `ASGI` расшифровывается как Asynchronous Server Gateway Interface: асинхронный интерфейс между Python web-приложением и сервером.
 
 ## Backend: лёгкий режим
 
