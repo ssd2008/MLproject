@@ -40,7 +40,7 @@ jobs:
   integration:
     runs-on: ubuntu-latest
     env:
-      DATABASE_URL: postgresql://med_user@127.0.0.1:5432/med_assistant
+      POSTGRES_PASSWORD: "med\u005fpass"
       QDRANT_URL: http://127.0.0.1:6333
       QDRANT_COLLECTION_NAME: ci_document_chunks_v1
       EMBEDDING_BACKEND: hash
@@ -71,9 +71,13 @@ jobs:
           done
           docker compose ps --all
           exit 1
-      - run: python -m scripts.migrate
+      - name: Run database migrations
+        run: |
+          export DATABASE_URL="postgresql://med_user:${POSTGRES_PASSWORD}@127.0.0.1:5432/med_assistant"
+          python -m scripts.migrate
       - name: Start lightweight API
         run: |
+          export DATABASE_URL="postgresql://med_user:${POSTGRES_PASSWORD}@127.0.0.1:5432/med_assistant"
           uvicorn app.main:app --host 127.0.0.1 --port 8000 > api-ci.log 2>&1 &
           echo $! > api-ci.pid
           for attempt in {1..60}; do
