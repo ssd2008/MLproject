@@ -1,9 +1,11 @@
 FROM python:3.12-slim
 
-ARG REQUIREMENTS_FILE=requirements-ml.txt
+ARG REQUIREMENTS_FILE=requirements-ml.lock.txt
+ARG TORCH_VERSION=2.7.1
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
 WORKDIR /app
 
@@ -11,8 +13,11 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends curl libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt requirements-ml.txt ./
-RUN pip install --no-cache-dir -r "${REQUIREMENTS_FILE}"
+COPY requirements*.txt ./
+RUN pip install --no-cache-dir \
+        --index-url https://download.pytorch.org/whl/cpu \
+        "torch==${TORCH_VERSION}+cpu" \
+    && pip install --no-cache-dir -r "${REQUIREMENTS_FILE}"
 
 COPY . .
 RUN mkdir -p /app/data/uploads
