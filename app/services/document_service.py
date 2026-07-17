@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from io import BytesIO
 from pathlib import Path
+from typing import BinaryIO
 from uuid import UUID, uuid4
 
 from app.config import Settings
@@ -26,7 +28,10 @@ _VIDEO_TYPES = {
     ".webm": "video/webm",
     ".m4v": "video/x-m4v",
 }
-_ALLOWED_VIDEO_MIME_TYPES = set(_VIDEO_TYPES.values()) | {"application/octet-stream"}
+_ALLOWED_VIDEO_MIME_TYPES = set(_VIDEO_TYPES.values()) | {
+    "application/octet-stream",
+    "video/matroska",
+}
 
 
 class DocumentService:
@@ -135,12 +140,40 @@ class DocumentService:
             storage_path.unlink(missing_ok=True)
             raise
 
+    @staticmethod
+    def _store_video_stream(
+        source: BinaryIO,
+        storage_path: Path,
+        max_size_bytes: int,
+    ) -> tuple[int, str]:
+        source.seek(0)
+        checksum = hashlib.sha256()
+        size_bytes = 0
+        try:
+            with storage_path.open("xb") as target:
+                while chunk := source.read(8 * 1024 * 1024):
+                    size_bytes += len(chunk)
+                    if size_bytes > max_size_bytes:
+                        limit_mb = max_size_bytes // (1024 * 1024)
+                        raise InvalidDocumentError(
+                            f"Video exceeds the {limit_mb} MB limit"
+                        )
+                    checksum.update(chunk)
+                    target.write(chunk)
+            if size_bytes == 0:
+                raise InvalidDocumentError("Uploaded video is empty")
+            return size_bytes, checksum.hexdigest()
+        except Exception:
+            storage_path.unlink(missing_ok=True)
+            raise
+
     async def upload_video(
         self,
         *,
         filename: str,
         content_type: str | None,
-        data: bytes,
+        data: bytes | None = None,
+        file_object: BinaryIO | None = None,
         title: str,
         specialty: str | None,
         language: str,
@@ -154,19 +187,20 @@ class DocumentService:
             )
         if content_type and content_type not in _ALLOWED_VIDEO_MIME_TYPES:
             raise UnsupportedMediaTypeError(f"Unsupported video content type: {content_type}")
-        if not data:
-            raise InvalidDocumentError("Uploaded video is empty")
-        if len(data) > self._settings.max_video_size_bytes:
-            raise InvalidDocumentError(
-                f"Video exceeds the {self._settings.max_video_size_mb} MB limit"
-            )
+        if (data is None) == (file_object is None):
+            raise ValueError("Exactly one video input must be provided")
         metadata = self._parse_metadata(metadata_json)
 
         upload_dir = self._settings.upload_dir
         await asyncio.to_thread(upload_dir.mkdir, parents=True, exist_ok=True)
         storage_path = upload_dir / f"{uuid4()}{suffix}"
-        await asyncio.to_thread(storage_path.write_bytes, data)
-        checksum = hashlib.sha256(data).hexdigest()
+        source = file_object if file_object is not None else BytesIO(data or b"")
+        size_bytes, checksum = await asyncio.to_thread(
+            self._store_video_stream,
+            source,
+            storage_path,
+            self._settings.max_video_size_bytes,
+        )
         try:
             return await self._repository.create(
                 title=title,
@@ -175,7 +209,7 @@ class DocumentService:
                 original_filename=Path(filename).name,
                 storage_path=storage_path,
                 mime_type=_VIDEO_TYPES[suffix],
-                size_bytes=len(data),
+                size_bytes=size_bytes,
                 checksum_sha256=checksum,
                 specialty=specialty,
                 lecture_date=lecture_date,
