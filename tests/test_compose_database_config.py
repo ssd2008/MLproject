@@ -1,5 +1,5 @@
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 import yaml
 
@@ -24,7 +24,8 @@ def test_compose_postgres_credentials_are_consistent() -> None:
 
         assert parsed.scheme == "postgresql"
         assert parsed.username == expected_user
-        assert parsed.password == expected_password
+        assert parsed.password is not None
+        assert unquote(parsed.password) == expected_password
         assert parsed.hostname == "postgres"
         assert parsed.port == 5432
         assert parsed.path == f"/{expected_database}"
