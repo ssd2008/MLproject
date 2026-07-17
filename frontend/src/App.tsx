@@ -81,8 +81,8 @@ export default function App() {
     <div className="app-shell">
       <aside className={`sidebar${mobileMenuOpen ? " sidebar--open" : ""}`}>
         <div className="brand">
-          <div className="brand__mark">M</div>
-          <div><strong>MedStudy AI</strong><span>Learning assistant</span></div>
+          <div className="brand__mark">А</div>
+          <div><strong>Асси</strong><span>Medical Learning Assistant</span></div>
         </div>
 
         <nav className="navigation" aria-label="Основная навигация">
@@ -114,7 +114,7 @@ export default function App() {
       <main className="main-content">
         <header className="mobile-header">
           <button className="menu-button" type="button" onClick={() => setMobileMenuOpen(true)} aria-label="Открыть меню">☰</button>
-          <div className="brand brand--mobile"><div className="brand__mark">M</div><strong>MedStudy AI</strong></div>
+          <div className="brand brand--mobile"><div className="brand__mark">А</div><strong>Асси</strong></div>
           <span className={`mobile-status mobile-status--${health?.status || "unknown"}`} />
         </header>
 
