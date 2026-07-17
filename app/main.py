@@ -18,6 +18,9 @@ from app.logging_config import configure_logging
 logger = logging.getLogger(__name__)
 
 
+APP_DISPLAY_NAME = "Асси — Medical Learning Assistant"
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     config = settings or get_settings()
     configure_logging(config.log_level)
@@ -32,7 +35,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await container.close()
 
     app = FastAPI(
-        title=config.app_name,
+        title=APP_DISPLAY_NAME,
         version=config.app_version,
         debug=config.debug,
         lifespan=lifespan,
