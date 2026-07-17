@@ -11,14 +11,12 @@ from fastapi.responses import JSONResponse
 
 from app.api.router import api_router
 from app.config import Settings, get_settings
+from app.constants import APP_DISPLAY_NAME
 from app.container import create_container
 from app.exceptions import AppError
 from app.logging_config import configure_logging
 
 logger = logging.getLogger(__name__)
-
-
-APP_DISPLAY_NAME = "Асси — Medical Learning Assistant"
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
