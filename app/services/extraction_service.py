@@ -176,6 +176,11 @@ class ExtractionService:
         )
 
     @classmethod
+    async def _validate_public_url(cls, url: str) -> None:
+        """Validate that a URL resolves only to public network addresses."""
+        await cls._resolve_public_addresses(url)
+
+    @classmethod
     async def _resolve_public_addresses(
         cls,
         url: str,
