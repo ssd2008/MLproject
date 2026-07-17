@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Response, status
 
 from app.container import AppContainer
 from app.dependencies import get_container
+from app.main import APP_DISPLAY_NAME
 from app.schemas import ComponentHealth, HealthOut
 
 router = APIRouter(tags=["health"])
@@ -37,23 +38,26 @@ async def healthcheck(
         "qdrant": qdrant,
         "embedding": ComponentHealth(
             status="ok",
-            detail=container.embeddings.backend_name,
+            detail=f"configured:{container.embeddings.backend_name}",
         ),
         "reranker": ComponentHealth(
             status="ok",
-            detail=container.reranker.backend_name,
+            detail=f"configured:{container.reranker.backend_name}",
         ),
         "asr": ComponentHealth(
             status=asr_status,
             detail=(
                 None
                 if asr_status == "disabled"
-                else f"{container.transcription.backend_name}:{container.settings.asr_model_name}"
+                else (
+                    "configured:"
+                    f"{container.transcription.backend_name}:{container.settings.asr_model_name}"
+                )
             ),
         ),
         "answer": ComponentHealth(
             status="ok",
-            detail=container.answer_service.backend_name,
+            detail=f"configured:{container.answer_service.backend_name}",
         ),
     }
     overall = "ok" if all(item.status != "error" for item in components.values()) else "degraded"
@@ -61,7 +65,7 @@ async def healthcheck(
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     return HealthOut(
         status=overall,
-        service=container.settings.app_name,
+        service=APP_DISPLAY_NAME,
         version=container.settings.app_version,
         components=components,
     )
