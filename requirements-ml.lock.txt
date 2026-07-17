@@ -1,0 +1,3 @@
+-r requirements-runtime.lock.txt
+sentence-transformers==5.1.2
+faster-whisper==1.2.1
