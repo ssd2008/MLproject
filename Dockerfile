@@ -14,9 +14,14 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements*.txt ./
-RUN pip install --no-cache-dir \
-        --index-url https://download.pytorch.org/whl/cpu \
-        "torch==${TORCH_VERSION}+cpu" \
+RUN architecture="$(dpkg --print-architecture)" \
+    && if [ "$architecture" = "amd64" ]; then \
+         pip install --no-cache-dir \
+           --extra-index-url https://download.pytorch.org/whl/cpu \
+           "torch==${TORCH_VERSION}+cpu"; \
+       else \
+         pip install --no-cache-dir "torch==${TORCH_VERSION}"; \
+       fi \
     && pip install --no-cache-dir -r "${REQUIREMENTS_FILE}"
 
 COPY . .
