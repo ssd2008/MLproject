@@ -153,13 +153,15 @@ Docker image отдельно устанавливает CPU-сборку PyTorc
 
 ## Frontend
 
-Прямые frontend-зависимости закреплены точными версиями в `frontend/package.json`.
+Версии frontend-зависимостей закреплены в `frontend/package.json` и `frontend/package-lock.json`.
 
 ```bash
 cd frontend
-npm install --no-audit --no-fund
+npm ci --no-audit --no-fund
 npm run dev
 ```
+
+`npm ci` устанавливает строго тот набор пакетов, который записан в lock-файле. После намеренного изменения зависимостей выполни `npm install`, проверь обновлённый `package-lock.json` и закоммить оба файла.
 
 Vite dev server по умолчанию доступен на:
 
@@ -226,7 +228,7 @@ GitHub Actions выполняет:
 1. `docker compose config --quiet`;
 2. Ruff и pytest;
 3. lightweight integration test с PostgreSQL и Qdrant;
-4. frontend TypeScript/build.
+4. frontend `npm ci` и production build.
 
 Полный тяжёлый ML image в CI не собирается на каждый commit.
 
