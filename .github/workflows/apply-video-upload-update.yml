@@ -1,0 +1,272 @@
+name: apply-video-upload-update
+
+on:
+  push:
+    branches: [master]
+    paths: [.github/workflows/apply-video-upload-update.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply video upload changes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file_path = Path(path)
+              text = file_path.read_text(encoding="utf-8")
+              if text.count(old) != 1:
+                  raise RuntimeError(f"Expected one match in {path}: {old!r}")
+              file_path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          replace_once(
+              "app/config.py",
+              "max_video_size_mb: int = Field(default=500, ge=1, le=5000)",
+              "max_video_size_mb: int = Field(default=2048, ge=1, le=5000)",
+          )
+
+          replace_once(
+              "docker-compose.yml",
+              "MAX_VIDEO_SIZE_MB: 500",
+              "MAX_VIDEO_SIZE_MB: 2048",
+          )
+          replace_once(
+              ".env.example",
+              "MAX_VIDEO_SIZE_MB=500",
+              "MAX_VIDEO_SIZE_MB=2048",
+          )
+
+          replace_once(
+              "app/api/documents.py",
+              '''    data = await file.read(container.settings.max_video_size_bytes + 1)
+    return await container.document_service.upload_video(
+        filename=file.filename or "upload.mp4",
+        content_type=file.content_type,
+        data=data,
+''',
+              '''    await file.seek(0)
+    return await container.document_service.upload_video(
+        filename=file.filename or "upload.mp4",
+        content_type=file.content_type,
+        file_object=file.file,
+''',
+          )
+
+          service_path = Path("app/services/document_service.py")
+          service = service_path.read_text(encoding="utf-8")
+          service = service.replace(
+              "from pathlib import Path\nfrom uuid import UUID, uuid4",
+              "from io import BytesIO\nfrom pathlib import Path\nfrom typing import BinaryIO\nfrom uuid import UUID, uuid4",
+              1,
+          )
+          service = service.replace(
+              '_ALLOWED_VIDEO_MIME_TYPES = set(_VIDEO_TYPES.values()) | {"application/octet-stream"}',
+              '_ALLOWED_VIDEO_MIME_TYPES = set(_VIDEO_TYPES.values()) | {\n    "application/octet-stream",\n    "video/matroska",\n}',
+              1,
+          )
+
+          pattern = re.compile(
+              r"\n    async def upload_video\(.*?\n    async def get\(",
+              re.DOTALL,
+          )
+          replacement = '''
+    @staticmethod
+    def _store_video_stream(
+        source: BinaryIO,
+        storage_path: Path,
+        max_size_bytes: int,
+    ) -> tuple[int, str]:
+        source.seek(0)
+        checksum = hashlib.sha256()
+        size_bytes = 0
+        try:
+            with storage_path.open("xb") as target:
+                while chunk := source.read(8 * 1024 * 1024):
+                    size_bytes += len(chunk)
+                    if size_bytes > max_size_bytes:
+                        limit_mb = max_size_bytes // (1024 * 1024)
+                        raise InvalidDocumentError(
+                            f"Video exceeds the {limit_mb} MB limit"
+                        )
+                    checksum.update(chunk)
+                    target.write(chunk)
+            if size_bytes == 0:
+                raise InvalidDocumentError("Uploaded video is empty")
+            return size_bytes, checksum.hexdigest()
+        except Exception:
+            storage_path.unlink(missing_ok=True)
+            raise
+
+    async def upload_video(
+        self,
+        *,
+        filename: str,
+        content_type: str | None,
+        data: bytes | None = None,
+        file_object: BinaryIO | None = None,
+        title: str,
+        specialty: str | None,
+        language: str,
+        lecture_date,
+        metadata_json: str | None,
+    ) -> DocumentOut:
+        suffix = Path(filename).suffix.lower()
+        if suffix not in _VIDEO_TYPES:
+            raise UnsupportedMediaTypeError(
+                "Supported video formats: .mp4, .mov, .mkv, .webm and .m4v"
+            )
+        if content_type and content_type not in _ALLOWED_VIDEO_MIME_TYPES:
+            raise UnsupportedMediaTypeError(f"Unsupported video content type: {content_type}")
+        if (data is None) == (file_object is None):
+            raise ValueError("Exactly one video input must be provided")
+        metadata = self._parse_metadata(metadata_json)
+
+        upload_dir = self._settings.upload_dir
+        await asyncio.to_thread(upload_dir.mkdir, parents=True, exist_ok=True)
+        storage_path = upload_dir / f"{uuid4()}{suffix}"
+        source = file_object if file_object is not None else BytesIO(data or b"")
+        size_bytes, checksum = await asyncio.to_thread(
+            self._store_video_stream,
+            source,
+            storage_path,
+            self._settings.max_video_size_bytes,
+        )
+        try:
+            return await self._repository.create(
+                title=title,
+                source_type=SourceType.VIDEO,
+                content_text=None,
+                original_filename=Path(filename).name,
+                storage_path=storage_path,
+                mime_type=_VIDEO_TYPES[suffix],
+                size_bytes=size_bytes,
+                checksum_sha256=checksum,
+                specialty=specialty,
+                lecture_date=lecture_date,
+                language=language,
+                metadata={
+                    **metadata,
+                    "transcription_status": "pending",
+                    "asr_model": self._settings.asr_model_name,
+                },
+            )
+        except Exception:
+            storage_path.unlink(missing_ok=True)
+            raise
+
+    async def get('''
+          service, count = pattern.subn("\n" + replacement, service, count=1)
+          if count != 1:
+              raise RuntimeError("Could not replace upload_video implementation")
+          service_path.write_text(service, encoding="utf-8")
+
+          replace_once(
+              "frontend/src/pages/DocumentsPage.tsx",
+              "const MAX_VIDEO_SIZE_MB = 500;",
+              "const MAX_VIDEO_SIZE_MB = 2 * 1024;",
+          )
+          replace_once(
+              "frontend/src/pages/DocumentsPage.tsx",
+              'video/mp4,video/quicktime,video/webm,.mkv,.m4v',
+              'video/mp4,video/quicktime,video/webm,video/x-matroska,video/matroska,.mkv,.MKV,.m4v',
+          )
+          replace_once(
+              "frontend/src/pages/DocumentsPage.tsx",
+              '`MP4, MOV, MKV, WEBM или M4V · до ${MAX_VIDEO_SIZE_MB} МБ`',
+              '`MP4, MOV, MKV, WEBM или M4V · до 2 ГБ`',
+          )
+
+          replace_once(
+              "frontend/nginx.conf",
+              "client_max_body_size 512m;",
+              "client_max_body_size 2100m;\n    client_body_timeout 7200s;",
+          )
+          replace_once(
+              "frontend/nginx.conf",
+              "proxy_http_version 1.1;",
+              "proxy_http_version 1.1;\n        proxy_request_buffering off;",
+          )
+
+          for path in Path("md").glob("*.md"):
+              text = path.read_text(encoding="utf-8")
+              text = text.replace("500 МБ", "2 ГБ")
+              text = text.replace("500 MB", "2 GB")
+              path.write_text(text, encoding="utf-8")
+
+          test_path = Path("tests/test_video_upload_config.py")
+          test_path.write_text(
+              '''from io import BytesIO
+from pathlib import Path
+
+import pytest
+
+from app.config import Settings
+from app.exceptions import InvalidDocumentError
+from app.services.document_service import (
+    DocumentService,
+    _ALLOWED_VIDEO_MIME_TYPES,
+    _VIDEO_TYPES,
+)
+
+
+def test_default_video_limit_is_two_gibibytes() -> None:
+    assert Settings.model_fields["max_video_size_mb"].default == 2048
+    assert Settings(max_video_size_mb=2048).max_video_size_bytes == 2 * 1024**3
+
+
+def test_mkv_is_supported_case_insensitively() -> None:
+    assert Path("lecture.MKV").suffix.lower() in _VIDEO_TYPES
+    assert _VIDEO_TYPES[".mkv"] == "video/x-matroska"
+    assert "video/matroska" in _ALLOWED_VIDEO_MIME_TYPES
+
+
+def test_video_stream_is_written_incrementally(tmp_path: Path) -> None:
+    target = tmp_path / "lecture.mkv"
+    size_bytes, checksum = DocumentService._store_video_stream(
+        BytesIO(b"matroska-data"),
+        target,
+        1024,
+    )
+
+    assert size_bytes == len(b"matroska-data")
+    assert len(checksum) == 64
+    assert target.read_bytes() == b"matroska-data"
+
+
+def test_oversized_video_stream_is_removed(tmp_path: Path) -> None:
+    target = tmp_path / "oversized.mkv"
+
+    with pytest.raises(InvalidDocumentError, match="exceeds"):
+        DocumentService._store_video_stream(BytesIO(b"1234"), target, 3)
+
+    assert not target.exists()
+''',
+              encoding="utf-8",
+          )
+
+          # Ensure the old configured limit is gone from runtime/UI configuration.
+          checks = {
+              "app/config.py": "default=500",
+              "docker-compose.yml": "MAX_VIDEO_SIZE_MB: 500",
+              ".env.example": "MAX_VIDEO_SIZE_MB=500",
+              "frontend/src/pages/DocumentsPage.tsx": "MAX_VIDEO_SIZE_MB = 500",
+          }
+          for path, old_value in checks.items():
+              if old_value in Path(path).read_text(encoding="utf-8"):
+                  raise RuntimeError(f"Old video limit remains in {path}")
+          PY
+
+          python -m compileall -q app tests
+          rm .github/workflows/apply-video-upload-update.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Support 2 GiB MKV video uploads"
+          git push
