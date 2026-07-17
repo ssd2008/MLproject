@@ -1,26 +1,44 @@
-# Деинсталяция
+# Деинсталляция Асси
 
-Удаляем docker-контейнеры и кэш:
+Команды нужно выполнять из папки репозитория, пока в ней находится `docker-compose.yml`.
 
-```Bash
+## 1. Удали Docker-ресурсы Асси
+
+```bash
 docker compose down -v --rmi all --remove-orphans
+```
+
+Команда удаляет контейнеры, сети, образы и именованные volumes Compose-проекта. Вместе с volumes удаляются PostgreSQL, данные Qdrant, загруженные материалы и кэш моделей.
+
+## 2. При необходимости очисти build cache
+
+```bash
 docker builder prune
 ```
 
-Затем удаляем сам репозиторий.
+> `docker builder prune` не ограничивается Асси: команда может удалить неиспользуемый кэш сборки других Docker-проектов. Перед удалением Docker покажет запрос подтверждения.
+
+## 3. Удали репозиторий
 
 macOS/Linux:
 
-```Bash
+```bash
 cd ..
 rm -rf MLproject
 ```
 
 Windows PowerShell:
 
-```Bash
-cd ..
+```powershell
+Set-Location ..
 Remove-Item -Recurse -Force .\MLproject
 ```
 
-После этого от проекта почти ничего не останется.
+После этого исходный код и Docker-ресурсы Асси будут удалены. Git, Docker Desktop и ресурсы других активных Docker-проектов останутся.
+
+Проверить оставшиеся Docker-объекты:
+
+```bash
+docker compose ps --all
+docker system df
+```
