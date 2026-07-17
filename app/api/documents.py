@@ -71,11 +71,11 @@ async def upload_video(
     metadata: str | None = Form(default=None),
     container: AppContainer = Depends(get_container),
 ) -> DocumentOut:
-    data = await file.read(container.settings.max_video_size_bytes + 1)
+    await file.seek(0)
     return await container.document_service.upload_video(
         filename=file.filename or "upload.mp4",
         content_type=file.content_type,
-        data=data,
+        file_object=file.file,
         title=title,
         specialty=specialty,
         language=language,
