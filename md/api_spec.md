@@ -203,7 +203,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/documents/upload \
 
 Загружает видео как `multipart/form-data`. Поля совпадают с PDF upload.
 
-Поддерживаются `.mp4`, `.mov`, `.mkv`, `.webm` и `.m4v`. Лимит по умолчанию — 500 МБ. Транскрибация выполняется локально через `faster-whisper`.
+Поддерживаются `.mp4`, `.mov`, `.mkv`, `.webm` и `.m4v`. Лимит по умолчанию — 2 ГБ. Транскрибация выполняется локально через `faster-whisper`.
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/documents/upload/video \
