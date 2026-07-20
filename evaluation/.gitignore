@@ -1,0 +1,9 @@
+data/raw/
+data/*.json
+data/*.jsonl
+results/*.csv
+results/*.json
+results/*.jsonl
+results/*.md
+!data/.gitkeep
+!results/.gitkeep
