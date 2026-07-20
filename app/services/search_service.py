@@ -18,6 +18,7 @@ class SearchService:
         vectors: VectorRepository,
         embeddings: EmbeddingService,
         reranker: RerankService,
+        reranker_enabled: bool = False,
         video_context_neighbor_chunks: int = 1,
     ) -> None:
         if video_context_neighbor_chunks < 0:
@@ -25,6 +26,7 @@ class SearchService:
         self._vectors = vectors
         self._embeddings = embeddings
         self._reranker = reranker
+        self._reranker_enabled = reranker_enabled
         self._video_context_neighbor_chunks = video_context_neighbor_chunks
 
     async def search(self, request: QueryRequest) -> SearchResponse:
@@ -37,7 +39,7 @@ class SearchService:
             filters=request.filters,
         )
         rerank_scores: list[float | None]
-        if request.use_reranker and candidates:
+        if self._reranker_enabled and request.use_reranker and candidates:
             rerank_scores = list(
                 await self._reranker.score(
                     request.query,
