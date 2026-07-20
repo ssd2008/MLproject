@@ -32,13 +32,16 @@ def main() -> None:
     del embedding_model
     gc.collect()
 
-    print(f"Downloading reranker model: {settings.reranker_model_name}", flush=True)
-    reranker_model = CrossEncoder(
-        settings.reranker_model_name,
-        device=reranker_device,
-    )
-    del reranker_model
-    gc.collect()
+    if settings.reranker_enabled:
+        print(f"Downloading reranker model: {settings.reranker_model_name}", flush=True)
+        reranker_model = CrossEncoder(
+            settings.reranker_model_name,
+            device=reranker_device,
+        )
+        del reranker_model
+        gc.collect()
+    else:
+        print("Skipping reranker model: RERANKER_ENABLED=false", flush=True)
 
     if settings.asr_backend != "disabled":
         print(f"Downloading ASR model: {settings.asr_model_name}", flush=True)
@@ -50,7 +53,7 @@ def main() -> None:
         del asr_model
         gc.collect()
 
-    print("ML models are available in the Hugging Face cache", flush=True)
+    print("Enabled ML models are available in the Hugging Face cache", flush=True)
 
 
 if __name__ == "__main__":
