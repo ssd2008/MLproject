@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import asyncio
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from app.config import Settings
-from app.exceptions import InvalidDocumentError
+from app.exceptions import IndexingCancelledError, InvalidDocumentError
 from app.services.extraction_service import TimedTextSpan, clean_text
 
 _PUNCTUATION = frozenset(".,!?;:%)]}»")
+TranscriptionProgressCallback = Callable[[float, float], None]
+CancellationCheck = Callable[[], bool]
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,16 +55,33 @@ class TranscriptionService:
                 )
         return self._model
 
-    async def transcribe(self, path: Path, *, language: str | None) -> TranscriptionResult:
+    async def transcribe(
+        self,
+        path: Path,
+        *,
+        language: str | None,
+        on_progress: TranscriptionProgressCallback | None = None,
+        should_cancel: CancellationCheck | None = None,
+    ) -> TranscriptionResult:
         model = await self._get_model()
-        return await asyncio.to_thread(self._transcribe_sync, model, path, language)
+        return await asyncio.to_thread(
+            self._transcribe_sync,
+            model,
+            path,
+            language,
+            on_progress,
+            should_cancel,
+        )
 
     def _transcribe_sync(
         self,
         model: Any,
         path: Path,
         language: str | None,
+        on_progress: TranscriptionProgressCallback | None,
+        should_cancel: CancellationCheck | None,
     ) -> TranscriptionResult:
+        self._raise_if_cancelled(should_cancel)
         requested_language = language if language and language.lower() not in {"auto", "unknown"} else None
         segments, info = model.transcribe(
             str(path),
@@ -74,11 +94,17 @@ class TranscriptionService:
         parts: list[str] = []
         spans: list[TimedTextSpan] = []
         cursor = 0
+        total_duration = float(getattr(info, "duration", 0.0) or 0.0)
+
+        if on_progress is not None and total_duration > 0:
+            on_progress(0.0, total_duration)
 
         for segment in segments:
+            self._raise_if_cancelled(should_cancel)
             words = list(segment.words or [])
             if words:
                 for word in words:
+                    self._raise_if_cancelled(should_cancel)
                     token = clean_text(str(word.word or "")).strip()
                     if not token:
                         continue
@@ -104,6 +130,10 @@ class TranscriptionService:
                     float(segment.end),
                 )
 
+            if on_progress is not None and total_duration > 0:
+                on_progress(min(float(segment.end), total_duration), total_duration)
+
+        self._raise_if_cancelled(should_cancel)
         text = "".join(parts).strip()
         if not text or not spans:
             raise InvalidDocumentError("No speech could be transcribed from the uploaded video")
@@ -129,6 +159,11 @@ class TranscriptionService:
             language_probability=float(probability) if probability is not None else None,
             duration_seconds=duration,
         )
+
+    @staticmethod
+    def _raise_if_cancelled(should_cancel: CancellationCheck | None) -> None:
+        if should_cancel is not None and should_cancel():
+            raise IndexingCancelledError("Indexing cancelled by user")
 
     @staticmethod
     def _append_token(
