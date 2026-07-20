@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.schemas import AnswerRequest, DocumentCreate, SourceType
+from app.schemas import AnswerRequest, DocumentCreate, QueryRequest, SourceType
 
 
 def test_text_document_requires_text() -> None:
@@ -17,6 +17,12 @@ def test_url_document_rejects_raw_text() -> None:
             source_url="https://example.com",
             raw_text="not allowed",
         )
+
+
+def test_query_uses_dense_retrieval_by_default() -> None:
+    request = QueryRequest(query="test query")
+
+    assert request.use_reranker is False
 
 
 def test_answer_context_cannot_exceed_top_k() -> None:
