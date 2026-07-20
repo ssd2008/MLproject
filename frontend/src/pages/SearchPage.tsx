@@ -13,7 +13,7 @@ export function SearchPage({ documents }: { documents: DocumentItem[] }) {
   const [sourceType, setSourceType] = useState<SourceType | "">("");
   const [topK, setTopK] = useState(10);
   const [candidateK, setCandidateK] = useState(30);
-  const [useReranker, setUseReranker] = useState(true);
+  const [useReranker, setUseReranker] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,7 +50,7 @@ export function SearchPage({ documents }: { documents: DocumentItem[] }) {
         <div>
           <span className="eyebrow">Retrieval</span>
           <h1>Поиск по материалам</h1>
-          <p>Для видео каждый найденный фрагмент содержит примерный тайм-код длительностью около 10 секунд.</p>
+          <p>Видео индексируется фрагментами до 20 секунд; к результату может добавляться соседний контекст.</p>
         </div>
       </section>
 
@@ -89,7 +89,7 @@ export function SearchPage({ documents }: { documents: DocumentItem[] }) {
                 </div>
                 <label className="check-field check-field--compact">
                   <input type="checkbox" checked={useReranker} onChange={(event) => setUseReranker(event.target.checked)} />
-                  <span><strong>Использовать reranker</strong><small>Повторно отсортировать кандидатов.</small></span>
+                  <span><strong>Использовать reranker</strong><small>Экспериментальная опция; требует RERANKER_ENABLED=true на backend.</small></span>
                 </label>
               </div>
             )}
