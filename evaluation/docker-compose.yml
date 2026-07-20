@@ -1,0 +1,12 @@
+services:
+  benchmark:
+    build:
+      context: ..
+      dockerfile: evaluation/Dockerfile
+    volumes:
+      - ./data:/app/evaluation/data
+      - ./results:/app/evaluation/results
+      - benchmark_huggingface_cache:/models/huggingface
+
+volumes:
+  benchmark_huggingface_cache:
