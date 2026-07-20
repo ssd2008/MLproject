@@ -78,8 +78,8 @@ class TranscriptionService:
         model: Any,
         path: Path,
         language: str | None,
-        on_progress: TranscriptionProgressCallback | None,
-        should_cancel: CancellationCheck | None,
+        on_progress: TranscriptionProgressCallback | None = None,
+        should_cancel: CancellationCheck | None = None,
     ) -> TranscriptionResult:
         self._raise_if_cancelled(should_cancel)
         requested_language = language if language and language.lower() not in {"auto", "unknown"} else None
