@@ -41,7 +41,22 @@ docker info
 
 ## Первый запуск долго стоит на `model-init`
 
-`model-init` скачивает embedding-модель, reranker и Whisper-модель. Это может занимать значительное время в зависимости от сети, диска и CPU.
+В стандартной конфигурации `model-init` скачивает:
+
+- `intfloat/multilingual-e5-large` для Dense retrieval;
+- `faster-whisper` для транскрибации видео.
+
+Reranker по умолчанию не скачивается, поскольку:
+
+```dotenv
+RERANKER_ENABLED=false
+```
+
+В логах должна появиться строка:
+
+```text
+Skipping reranker model: RERANKER_ENABLED=false
+```
 
 Логи:
 
@@ -54,13 +69,58 @@ docker compose logs -f model-init
 - доступ в интернет;
 - свободное место на диске;
 - что Docker Desktop не остановлен;
-- отсутствие корпоративного proxy/firewall, блокирующего Hugging Face и PyTorch CPU wheels.
+- отсутствие proxy или firewall, блокирующего Hugging Face и PyTorch CPU wheels.
 
 Повторный запуск использует постоянный cache volume и обычно быстрее.
 
+## Reranker не включается
+
+Reranking выполняется только при одновременном выполнении двух условий.
+
+В конфигурации сервера:
+
+```dotenv
+RERANKER_ENABLED=true
+```
+
+В запросе `/search` или `/answer`:
+
+```json
+{
+  "use_reranker": true
+}
+```
+
+После изменения глобального флага пересоздай model-init и API:
+
+```bash
+docker compose up --build model-init api
+```
+
+Проверь healthcheck:
+
+```bash
+curl http://127.0.0.1:8000/api/v1/health
+```
+
+При включённом reranker ожидается:
+
+```json
+{
+  "reranker": {
+    "status": "ok",
+    "detail": "configured:cross-encoder"
+  }
+}
+```
+
+При `RERANKER_ENABLED=false` запрос намеренно выполняется через Dense retrieval, а `rerank_score` равен `null`.
+
+Reranker оставлен только как экспериментальная опция. На текущем benchmark он ухудшил MRR и Top-1 gold accuracy и увеличил p50 latency с `0.297` до `5.525` секунды. Это не ошибка запуска.
+
 ## Сборка зависла на `exporting layers`
 
-Docker сохраняет большой image backend с ML-зависимостями. На медленном диске эта стадия может быть долгой.
+Docker сохраняет большой backend image с ML-зависимостями. На медленном диске эта стадия может быть долгой.
 
 Проверка места:
 
@@ -160,7 +220,9 @@ curl http://127.0.0.1:8000/api/v1/health
 docker compose logs --tail=200 postgres qdrant api
 ```
 
-`503` означает, что PostgreSQL или Qdrant недоступны. ML-компоненты в `/health` показываются как настроенные backend-ы, но обычный healthcheck не выполняет тестовый inference и не загружает модели в память.
+`503` означает, что PostgreSQL или Qdrant недоступны. ML-компоненты в `/health` показываются как настроенные или отключённые, но healthcheck не выполняет тестовый inference и не загружает модели в память.
+
+Статус `reranker=disabled` при стандартной конфигурации является нормальным и не переводит весь сервис в `degraded`.
 
 ## Frontend не открывается, но API работает
 
@@ -239,6 +301,26 @@ python scripts/migrate.py
 ```
 
 При модульном запуске корень проекта добавляется в Python import path.
+
+## Retrieval benchmark перезаписал результаты
+
+Команда benchmark сохраняет файлы в `evaluation/results/`.
+
+Стандартный запуск оценивает только Dense retrieval:
+
+```bash
+docker compose -f evaluation/docker-compose.yml run --rm benchmark
+```
+
+Полное сравнение запускается отдельно:
+
+```bash
+docker compose -f evaluation/docker-compose.yml run --rm benchmark \
+  bash -lc "python -m evaluation.prepare_dataset --questions 60 && \
+  python -m evaluation.run_benchmark --device cpu --include-bm25 --with-reranker"
+```
+
+Обе команды перезаписывают сгенерированные `benchmark_results.*`, `per_question.jsonl` и `run_metadata.json`. Зафиксированная интерпретация находится в `evaluation/RESULTS.md`.
 
 ## Windows: ошибка WSL или виртуализации
 
