@@ -1,0 +1,30 @@
+{
+  "citation_accuracy_definition": "top-1 cited chunk belongs to the annotated gold chunk set",
+  "config": {
+    "bm25_b": 0.75,
+    "bm25_k1": 1.5,
+    "candidate_k": 20,
+    "dense_batch_size": 8,
+    "device": "cpu",
+    "embedding_model": "intfloat/multilingual-e5-large",
+    "reranker_batch_size": 4,
+    "reranker_model": "BAAI/bge-reranker-v2-m3",
+    "top_k": 20
+  },
+  "dataset": {
+    "chunks": 18,
+    "documents": 3,
+    "questions": 60
+  },
+  "effective_device": "cpu",
+  "hardware": {
+    "cuda_available": false,
+    "device": "cpu",
+    "mps_available": false,
+    "platform": "Linux-6.10.14-linuxkit-x86_64-with-glibc2.41",
+    "processor": "",
+    "python": "3.11.15 (main, Jul 14 2026, 02:08:37) [GCC 14.2.0]",
+    "torch": "2.13.0+cu130"
+  },
+  "latency_definition": "warm model; per-query retrieval; excludes model loading and corpus indexing"
+}
