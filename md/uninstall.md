@@ -10,6 +10,12 @@ docker compose down -v --rmi all --remove-orphans
 
 Команда удаляет контейнеры, сети, образы и именованные volumes Compose-проекта. Вместе с volumes удаляются PostgreSQL, данные Qdrant, загруженные материалы и кэш моделей.
 
+Проверить, что Compose-контейнеры удалены:
+
+```bash
+docker compose ps --all
+```
+
 ## 2. При необходимости очисти build cache
 
 ```bash
@@ -36,9 +42,8 @@ Remove-Item -Recurse -Force .\MLproject
 
 После этого исходный код и Docker-ресурсы Асси будут удалены. Git, Docker Desktop и ресурсы других активных Docker-проектов останутся.
 
-Проверить оставшиеся Docker-объекты:
+Проверить общее использование диска Docker:
 
 ```bash
-docker compose ps --all
 docker system df
 ```
