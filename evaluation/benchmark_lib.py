@@ -303,7 +303,7 @@ def write_summary_files(results_dir: Path, summaries: Sequence[dict[str, Any]]) 
         writer.writerows(summaries)
 
     markdown_lines = [
-        "| Конфигурация | Recall@5 | MRR | Подтверждённые ответы | Задержка p50 |",
+        "| Конфигурация | Recall@5 | MRR | Top-1 gold accuracy | Задержка p50 |",
         "| --- | ---: | ---: | ---: | ---: |",
     ]
     for summary in summaries:
