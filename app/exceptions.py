@@ -46,3 +46,12 @@ class DependencyUnavailableError(AppError):
 class IndexingError(AppError):
     status_code = 500
     code = "indexing_failed"
+
+
+class IndexingCancellationTimeoutError(AppError):
+    status_code = 409
+    code = "indexing_cancellation_timeout"
+
+
+class IndexingCancelledError(RuntimeError):
+    """Internal signal used to stop an indexing pipeline without marking it failed."""
