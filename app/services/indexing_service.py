@@ -36,7 +36,7 @@ class IndexingService:
         chunking: ChunkingService,
         embeddings: EmbeddingService,
         transcription: TranscriptionService,
-        cancellation: IndexingCancellationRegistry,
+        cancellation: IndexingCancellationRegistry | None = None,
     ) -> None:
         self._settings = settings
         self._documents = documents
@@ -45,7 +45,7 @@ class IndexingService:
         self._chunking = chunking
         self._embeddings = embeddings
         self._transcription = transcription
-        self._cancellation = cancellation
+        self._cancellation = cancellation or IndexingCancellationRegistry()
 
     async def create_job(
         self,
