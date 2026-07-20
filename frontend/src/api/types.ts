@@ -1,6 +1,6 @@
 export type SourceType = "pdf" | "url" | "text" | "video";
 export type DocumentStatus = "uploaded" | "processing" | "ready" | "failed";
-export type JobStatus = "pending" | "running" | "completed" | "failed";
+export type JobStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
 export type ComponentStatus = "ok" | "error" | "disabled";
 
 export interface DocumentItem {
