@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
+import urllib.error
+from pathlib import Path
+from unittest.mock import patch
 
 from evaluation.benchmark_lib import (
     BM25Retriever,
@@ -10,7 +14,28 @@ from evaluation.benchmark_lib import (
     aggregate,
     evaluate_query,
 )
-from evaluation.prepare_dataset import SourceSpec, _deduplicate, _parse_document
+from evaluation.prepare_dataset import (
+    SOURCE_SPECS,
+    SourceSpec,
+    _deduplicate,
+    _download,
+    _parse_document,
+    prepare_dataset,
+)
+
+
+class _DummyResponse:
+    def __init__(self, payload: bytes) -> None:
+        self._payload = payload
+
+    def __enter__(self) -> _DummyResponse:
+        return self
+
+    def __exit__(self, exc_type, exc, traceback) -> None:
+        return None
+
+    def read(self) -> bytes:
+        return self._payload
 
 
 class BM25Tests(unittest.TestCase):
@@ -76,6 +101,34 @@ class DatasetTests(unittest.TestCase):
         originals = [item for item in deduplicated if item["question"] == "What are the symptoms?"]
         self.assertEqual(len(originals), 1)
         self.assertEqual(len(originals[0]["gold_chunk_ids"]), 2)
+
+    def test_download_uses_github_api_fallback_after_tls_failure(self) -> None:
+        xml = b"""<?xml version='1.0' encoding='UTF-8'?>
+<Document id='1'><Focus>Example</Focus><QAPairs /></Document>"""
+        with patch(
+            "evaluation.prepare_dataset.urllib.request.urlopen",
+            side_effect=[urllib.error.URLError("unexpected TLS EOF"), _DummyResponse(xml)],
+        ) as urlopen:
+            payload = _download(SOURCE_SPECS[0], attempts=1, base_delay_seconds=0)
+        self.assertEqual(payload, xml)
+        self.assertEqual(urlopen.call_count, 2)
+
+    def test_bundled_dataset_builds_without_network(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            with patch(
+                "evaluation.prepare_dataset._download",
+                side_effect=AssertionError("network access was not expected"),
+            ):
+                summary = prepare_dataset(
+                    Path(temporary_directory),
+                    target_questions=60,
+                    refresh=False,
+                )
+        self.assertEqual(summary["documents"], 3)
+        self.assertEqual(summary["chunks"], 18)
+        self.assertEqual(summary["questions"], 60)
+        self.assertEqual(summary["original_questions"], 15)
+        self.assertEqual(summary["paraphrased_questions"], 45)
 
 
 if __name__ == "__main__":
