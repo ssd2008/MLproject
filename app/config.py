@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     embedding_device: Literal["auto", "cpu", "mps", "cuda"] = "auto"
     normalize_embeddings: bool = True
 
+    reranker_enabled: bool = False
     reranker_backend: Literal["lexical", "cross-encoder"] = "lexical"
     reranker_model_name: str = "BAAI/bge-reranker-v2-m3"
     reranker_batch_size: int = Field(default=16, ge=1, le=256)
