@@ -80,6 +80,8 @@ def run_benchmark(
     results_dir: Path,
     config_path: Path,
     device_override: str | None,
+    include_bm25: bool,
+    with_reranker: bool,
 ) -> list[dict[str, Any]]:
     config = _load_config(config_path)
     device = device_override or config["device"]
@@ -89,9 +91,12 @@ def run_benchmark(
         raise ValueError("Dataset is empty. Run python -m evaluation.prepare_dataset first.")
 
     top_k = int(config["top_k"])
-    candidate_k = max(int(config["candidate_k"]), top_k)
+    configurations: list[tuple[str, Any]] = []
 
-    bm25 = BM25Retriever(chunks, k1=float(config["bm25_k1"]), b=float(config["bm25_b"]))
+    if include_bm25:
+        bm25 = BM25Retriever(chunks, k1=float(config["bm25_k1"]), b=float(config["bm25_b"]))
+        configurations.append(("BM25", bm25.search))
+
     dense = DenseRetriever(
         chunks,
         model_name=config["embedding_model"],
@@ -100,23 +105,22 @@ def run_benchmark(
     )
     print(f"Building dense index with {config['embedding_model']}...")
     dense.build()
+    configurations.append(("Dense", dense.search))
 
-    reranker = CrossEncoderReranker(
-        chunks,
-        dense,
-        model_name=config["reranker_model"],
-        batch_size=int(config["reranker_batch_size"]),
-        device=device,
-        candidate_k=candidate_k,
-    )
-    print(f"Loading reranker {config['reranker_model']}...")
-    reranker.build()
+    if with_reranker:
+        candidate_k = max(int(config["candidate_k"]), top_k)
+        reranker = CrossEncoderReranker(
+            chunks,
+            dense,
+            model_name=config["reranker_model"],
+            batch_size=int(config["reranker_batch_size"]),
+            device=device,
+            candidate_k=candidate_k,
+        )
+        print(f"Loading optional reranker {config['reranker_model']}...")
+        reranker.build()
+        configurations.append(("Dense + reranker", reranker.search))
 
-    configurations = (
-        ("BM25", bm25.search),
-        ("Dense", dense.search),
-        ("Dense + reranker", reranker.search),
-    )
     all_rows = []
     summaries: list[dict[str, Any]] = []
     for name, search_function in configurations:
@@ -134,6 +138,7 @@ def run_benchmark(
             "questions": len(questions),
         },
         "config": config,
+        "configurations": [name for name, _ in configurations],
         "effective_device": device,
         "hardware": _hardware_metadata(device),
         "latency_definition": "warm model; per-query retrieval; excludes model loading and corpus indexing",
@@ -147,11 +152,23 @@ def run_benchmark(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Compare BM25, dense retrieval, and dense + reranker")
+    parser = argparse.ArgumentParser(
+        description="Evaluate dense retrieval; optionally include BM25 and the experimental reranker"
+    )
     parser.add_argument("--data-dir", type=Path, default=Path("evaluation/data"))
     parser.add_argument("--results-dir", type=Path, default=Path("evaluation/results"))
     parser.add_argument("--config", type=Path, default=Path("evaluation/config.json"))
     parser.add_argument("--device", choices=("cpu", "cuda", "mps"), default=None)
+    parser.add_argument(
+        "--include-bm25",
+        action="store_true",
+        help="Include the lexical BM25 baseline in the report",
+    )
+    parser.add_argument(
+        "--with-reranker",
+        action="store_true",
+        help="Include the optional cross-encoder reranker in the report",
+    )
     return parser.parse_args()
 
 
@@ -162,6 +179,8 @@ def main() -> None:
         results_dir=args.results_dir,
         config_path=args.config,
         device_override=args.device,
+        include_bm25=args.include_bm25,
+        with_reranker=args.with_reranker,
     )
     print(json.dumps(summaries, ensure_ascii=False, indent=2, sort_keys=True))
 
