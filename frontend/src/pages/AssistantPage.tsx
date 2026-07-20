@@ -30,7 +30,7 @@ export function AssistantPage({ documents }: { documents: DocumentItem[] }) {
         query: query.trim(),
         top_k: 10,
         candidate_k: 30,
-        use_reranker: true,
+        use_reranker: false,
         filters: selectedDocuments.length ? { document_ids: selectedDocuments } : {},
         max_context_chunks: 6,
         response_style: responseStyle,

@@ -1,13 +1,13 @@
 .PHONY: install install-ml dev infra migrate run test lint smoke
 
 install:
-	python -m pip install -r requirements.txt
+	python -m pip install -r requirements-runtime.lock.txt
 
 install-ml:
-	python -m pip install -r requirements-ml.txt
+	python -m pip install -r requirements-ml.lock.txt
 
 dev:
-	python -m pip install -r requirements-dev.txt
+	python -m pip install -r requirements-dev.lock.txt
 
 infra:
 	docker compose up -d postgres qdrant
