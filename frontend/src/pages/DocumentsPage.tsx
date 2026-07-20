@@ -1,4 +1,4 @@
-import { ChangeEvent, FormEvent, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useMemo, useRef, useState } from "react";
 import { api, ApiError } from "../api/client";
 import type { DocumentItem, DocumentStatus, JobItem, SourceType } from "../api/types";
 import { Button, EmptyState, ErrorBanner, Modal, Spinner, Tag } from "../components/ui";
@@ -31,6 +31,20 @@ const STATUS_TONES: Record<DocumentStatus, string> = {
   failed: "danger",
 };
 
+const STAGE_LABELS: Record<string, string> = {
+  queued: "Ожидание запуска",
+  preparing: "Подготовка материала",
+  transcribing: "Распознавание речи",
+  transcribed: "Распознавание речи завершено",
+  chunking: "Разбиение материала на фрагменты",
+  embedding: "Создание embeddings",
+  storing: "Сохранение в Qdrant",
+  finalizing: "Завершение индексации",
+  completed: "Индексация завершена",
+  cancelled: "Индексация отменена",
+  failed: "Ошибка индексации",
+};
+
 function sourceMark(sourceType: SourceType): string {
   if (sourceType === "pdf") return "PDF";
   if (sourceType === "video") return "▶";
@@ -47,6 +61,14 @@ function uploadLimitLabel(mode: UploadMode): string {
   return mode === "video" ? "2 ГБ" : `${MAX_PDF_SIZE_MB} МБ`;
 }
 
+function stageLabel(job: JobItem | undefined, sourceType: SourceType): string {
+  const detail = job?.result.stage_detail;
+  if (typeof detail === "string" && detail.trim()) return detail;
+  const stage = job?.result.stage;
+  if (typeof stage === "string" && STAGE_LABELS[stage]) return STAGE_LABELS[stage];
+  return sourceType === "video" ? "Расшифровка и индексация" : "Индексация";
+}
+
 export function DocumentsPage({
   documents,
   loading,
@@ -61,6 +83,7 @@ export function DocumentsPage({
   const [statusFilter, setStatusFilter] = useState<DocumentStatus | "">("");
   const [sourceFilter, setSourceFilter] = useState<SourceType | "">("");
   const [query, setQuery] = useState("");
+  const deletingDocuments = useRef<Set<string>>(new Set());
 
   const [title, setTitle] = useState("");
   const [specialty, setSpecialty] = useState("");
@@ -123,10 +146,22 @@ export function DocumentsPage({
 
   async function pollJob(documentId: string, jobId: string, documentTitle: string) {
     for (let attempt = 0; attempt < 3600; attempt += 1) {
+      if (deletingDocuments.current.has(documentId)) return;
       const job = await api.getJob(jobId);
+      if (deletingDocuments.current.has(documentId)) return;
       setActiveJobs((current) => ({ ...current, [documentId]: job }));
       if (job.status === "completed") {
         notify(`«${documentTitle}» проиндексирован`);
+        setActiveJobs((current) => {
+          const next = { ...current };
+          delete next[documentId];
+          return next;
+        });
+        await refreshDocuments();
+        return;
+      }
+      if (job.status === "cancelled") {
+        notify(`Индексация «${documentTitle}» отменена`);
         setActiveJobs((current) => {
           const next = { ...current };
           delete next[documentId];
@@ -144,6 +179,7 @@ export function DocumentsPage({
   }
 
   async function runIndex(documentId: string, documentTitle: string) {
+    deletingDocuments.current.delete(documentId);
     try {
       const response = await api.indexDocument(documentId);
       setActiveJobs((current) => ({
@@ -155,7 +191,7 @@ export function DocumentsPage({
           progress: 0,
           chunk_size: 0,
           chunk_overlap: 0,
-          result: {},
+          result: { stage: "queued", stage_detail: "Ожидание запуска" },
           error_message: null,
           created_at: new Date().toISOString(),
           started_at: null,
@@ -166,6 +202,7 @@ export function DocumentsPage({
       await refreshDocuments();
       await pollJob(documentId, response.job_id, documentTitle);
     } catch (caught) {
+      if (deletingDocuments.current.has(documentId)) return;
       notify(caught instanceof Error ? caught.message : "Не удалось запустить индексацию", "error");
       setActiveJobs((current) => {
         const next = { ...current };
@@ -220,13 +257,28 @@ export function DocumentsPage({
   }
 
   async function handleDelete(document: DocumentItem) {
-    if (!window.confirm(`Удалить «${document.title}» и все его фрагменты из индекса?`)) return;
+    const activeJob = activeJobs[document.id];
+    const isIndexing = Boolean(activeJob) || document.status === "processing";
+    const message = isIndexing
+      ? `Остановить индексацию и удалить «${document.title}» вместе со всеми данными?`
+      : `Удалить «${document.title}» и все его фрагменты из индекса?`;
+    if (!window.confirm(message)) return;
+
+    deletingDocuments.current.add(document.id);
     try {
       await api.deleteDocument(document.id);
+      setActiveJobs((current) => {
+        const next = { ...current };
+        delete next[document.id];
+        return next;
+      });
       notify(`Документ «${document.title}» удалён`);
       await refreshDocuments();
     } catch (caught) {
+      deletingDocuments.current.delete(document.id);
       notify(caught instanceof Error ? caught.message : "Не удалось удалить документ", "error");
+      if (activeJob) void pollJob(document.id, activeJob.id, document.title);
+      await refreshDocuments();
     }
   }
 
@@ -279,7 +331,7 @@ export function DocumentsPage({
                       <h3>{document.title}</h3>
                       <div className="tag-row"><Tag>{SOURCE_LABELS[document.source_type]}</Tag><Tag tone={STATUS_TONES[document.status]}>{STATUS_LABELS[document.status]}</Tag></div>
                     </div>
-                    <button className="icon-button" type="button" onClick={() => void handleDelete(document)} aria-label="Удалить">×</button>
+                    <button className="icon-button" type="button" onClick={() => void handleDelete(document)} aria-label={isIndexing ? "Остановить индексацию и удалить" : "Удалить"}>×</button>
                   </div>
                   <dl className="document-meta">
                     <div><dt>Специальность</dt><dd>{document.specialty || "Не указана"}</dd></div>
@@ -293,7 +345,7 @@ export function DocumentsPage({
                   {document.error_message && <div className="inline-alert">{document.error_message}</div>}
                   {isIndexing && (
                     <div className="job-progress">
-                      <div><span>{document.source_type === "video" ? "Расшифровка и индексация" : "Индексация"}</span><strong>{job?.progress ?? 0}%</strong></div>
+                      <div><span>{stageLabel(job, document.source_type)}</span><strong>{job?.progress ?? 0}%</strong></div>
                       <div className="job-progress__track"><span style={{ width: `${job?.progress ?? 8}%` }} /></div>
                     </div>
                   )}
