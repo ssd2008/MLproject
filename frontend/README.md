@@ -8,7 +8,7 @@ Backend должен быть доступен на `http://127.0.0.1:8000`.
 
 ```bash
 cd frontend
-npm install
+npm ci --no-audit --no-fund
 npm run dev
 ```
 
