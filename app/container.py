@@ -20,6 +20,7 @@ from app.services.chunking_service import ChunkingService
 from app.services.document_service import DocumentService
 from app.services.embedding_service import EmbeddingService, create_embedding_service
 from app.services.extraction_service import ExtractionService
+from app.services.indexing_cancellation import IndexingCancellationRegistry
 from app.services.indexing_service import IndexingService
 from app.services.rerank_service import RerankService, create_rerank_service
 from app.services.search_service import SearchService
@@ -72,6 +73,7 @@ async def create_container(settings: Settings) -> AppContainer:
         embeddings = create_embedding_service(settings)
         reranker = create_rerank_service(settings)
         transcription = TranscriptionService(settings)
+        cancellation = IndexingCancellationRegistry()
         document_service = DocumentService(
             settings=settings,
             repository=documents,
@@ -86,6 +88,7 @@ async def create_container(settings: Settings) -> AppContainer:
             chunking=chunking,
             embeddings=embeddings,
             transcription=transcription,
+            cancellation=cancellation,
         )
         search_service = SearchService(
             vectors=vectors,
