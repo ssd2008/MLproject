@@ -11,5 +11,6 @@
 ## Полное описание -> [здесь](md/description.md)
 ## Типовые проблемы -> [здесь](md/troubleshooting.md)
 ## Для разработчиков ->  [здесь](md/development.md)
+## Retrieval benchmark -> [здесь](evaluation/README.md)
 ## API-спека -> [здесь](md/api_spec.md)
 ## Полная деинсталляция Асси -> [здесь](md/uninstall.md)

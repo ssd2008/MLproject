@@ -1,0 +1,11 @@
+data/raw/
+data/*.json
+data/*.jsonl
+results/*
+!results/.gitkeep
+!results/benchmark_results.md
+!results/benchmark_results.csv
+!results/run_metadata.json
+!results/per_question.jsonl
+!data/.gitkeep
+!results/.gitkeep

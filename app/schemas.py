@@ -150,7 +150,7 @@ class QueryRequest(APIModel):
     query: str = Field(min_length=2, max_length=5000)
     top_k: int = Field(default=10, ge=1, le=100)
     candidate_k: int = Field(default=30, ge=1, le=300)
-    use_reranker: bool = True
+    use_reranker: bool = False
     min_retrieval_score: float | None = Field(default=None, ge=-1.0, le=1.0)
     filters: SearchFilters = Field(default_factory=SearchFilters)
 
