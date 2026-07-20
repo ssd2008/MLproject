@@ -3,6 +3,7 @@ from __future__ import annotations
 import gc
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import TypeVar
 
 from app.config import settings
@@ -37,6 +38,28 @@ def _load_with_retries(
     raise RuntimeError(f"Unable to load {label}")
 
 
+def _resolve_huggingface_model(model_name_or_path: str, *, label: str) -> str:
+    """Return a local model path, downloading Hub repositories serially when needed."""
+    local_path = Path(model_name_or_path)
+    if local_path.exists():
+        print(f"Using local {label}: {local_path}", flush=True)
+        return str(local_path)
+
+    from huggingface_hub import snapshot_download
+
+    print(
+        f"Downloading {label} repository with one worker: {model_name_or_path}",
+        flush=True,
+    )
+    return _load_with_retries(
+        label,
+        lambda: snapshot_download(
+            repo_id=model_name_or_path,
+            max_workers=1,
+        ),
+    )
+
+
 def main() -> None:
     try:
         from faster_whisper import WhisperModel
@@ -50,13 +73,13 @@ def main() -> None:
     reranker_device = "cpu" if settings.reranker_device == "auto" else settings.reranker_device
     asr_device = "cpu" if settings.asr_device == "auto" else settings.asr_device
 
-    print(f"Downloading embedding model: {settings.embedding_model_name}", flush=True)
-    embedding_model = _load_with_retries(
-        "Embedding model",
-        lambda: SentenceTransformer(
-            settings.embedding_model_name,
-            device=embedding_device,
-        ),
+    embedding_source = _resolve_huggingface_model(
+        settings.embedding_model_name,
+        label="embedding model",
+    )
+    embedding_model = SentenceTransformer(
+        embedding_source,
+        device=embedding_device,
     )
     actual_dimension = embedding_model.get_sentence_embedding_dimension()
     if actual_dimension != settings.embedding_dimension:
@@ -68,13 +91,13 @@ def main() -> None:
     gc.collect()
 
     if settings.reranker_enabled:
-        print(f"Downloading reranker model: {settings.reranker_model_name}", flush=True)
-        reranker_model = _load_with_retries(
-            "Reranker model",
-            lambda: CrossEncoder(
-                settings.reranker_model_name,
-                device=reranker_device,
-            ),
+        reranker_source = _resolve_huggingface_model(
+            settings.reranker_model_name,
+            label="reranker model",
+        )
+        reranker_model = CrossEncoder(
+            reranker_source,
+            device=reranker_device,
         )
         del reranker_model
         gc.collect()
@@ -94,7 +117,7 @@ def main() -> None:
         del asr_model
         gc.collect()
 
-    print("Enabled ML models are available in the Hugging Face cache", flush=True)
+    print("Enabled ML models are available locally", flush=True)
 
 
 if __name__ == "__main__":
