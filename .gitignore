@@ -7,6 +7,7 @@ __pycache__/
 .coverage
 htmlcov/
 data/uploads/
+.models/
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/

@@ -55,7 +55,9 @@ CREATE TABLE IF NOT EXISTS index_jobs (
     started_at TIMESTAMPTZ,
     finished_at TIMESTAMPTZ,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT index_jobs_status_check CHECK (status IN ('pending', 'running', 'completed', 'failed')),
+    CONSTRAINT index_jobs_status_check CHECK (
+        status IN ('pending', 'running', 'completed', 'failed', 'cancelled')
+    ),
     CONSTRAINT index_jobs_progress_check CHECK (progress BETWEEN 0 AND 100),
     CONSTRAINT index_jobs_chunking_check CHECK (
         chunk_size > 0 AND chunk_overlap >= 0 AND chunk_overlap < chunk_size

@@ -139,5 +139,6 @@ async def delete_document(
     document_id: UUID,
     container: AppContainer = Depends(get_container),
 ) -> Response:
+    await container.indexing_service.cancel_document(document_id)
     await container.document_service.delete(document_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
